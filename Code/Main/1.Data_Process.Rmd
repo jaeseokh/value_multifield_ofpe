@@ -1,0 +1,219 @@
+---
+title: "1.Data_Process"
+author: "Jaeseok Hwang"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: defaulta
+---
+
+
+## Knitr option
+
+```{r, cache = F, echo = F, results = "hide"}
+#####
+
+library(knitr)
+
+knitr::opts_chunk$set(
+  cache = FALSE,
+  echo = FALSE,
+  warning = FALSE,
+  cache.lazy = FALSE,
+  fig.retina = 6,
+  fig.height = 9,
+  fig.width = 9,
+  message = FALSE,
+  error = TRUE
+)
+
+options(knitr.duplicate.label = "allow")
+
+```
+
+#### Packages 
+
+```{r pacakages, cache = FALSE, results = "hide"}
+
+library(here)
+library(rmarkdown)
+library(jsonlite)
+library(parallel)
+library(bookdown)
+library(knitr)
+library(stringr)
+
+library(measurements)
+library(data.table)
+library(tidyverse)
+library(smoother)
+library(dplyr)
+library(tmap)
+
+library(sf)
+library(stars)
+library(raster)
+library(exactextractr)
+library(terra)
+library(spatialEco)
+library(elevatr)
+library(soilDB)
+library(FedData)
+library(daymetr)
+  
+
+```
+
+# Preparation
+
+```{r preparations, cache = T, results = "hide"}
+
+# Read the field parameter data 
+field_data <- jsonlite::fromJSON(
+ file.path(
+    here("Data", "Raw"),
+    "field_parameter.json"
+  ),
+  flatten = TRUE
+)%>%
+  data.table() 
+
+
+# Read functions for data processing 
+source(here("Code","Main","0_Set_up_preparation.R"))
+source(here("Code","Functions","functions_for_process.R"))
+
+```
+
+# Data Processing
+
+```{r data processing, echo = F, results = "hide"}
+
+# Read trial fields list ( corn, 102 fields data)
+
+ffy_id_data <- list.files(here("Data","Raw","exp_tb_data")) %>%
+ str_subset("_tb.rds") %>%
+   str_remove("_tb.rds")
+
+ffy_id_bdry <- list.files(here("Data","Raw","exp_bdry_data")) %>%
+ str_subset("_bdry.rds") %>%
+   str_remove("_bdry.rds")  
+
+# Check if ffy_id in the trial field list and boundary list are matched
+match(ffy_id_data,ffy_id_bdry)
+
+# Read Exp_field_data and process non-exp data on the experimental data
+# add weather information on the field parameter ( field specific experimental information)
+ 
+ 
+ # "15_1,2,3_2023" (10 ~12)  Out of State 
+ # "27_1_2023" (41)
+ # "9_1,2_2022" (100~101)
+
+ffy_id_dat <- ffy_id_data[!ffy_id_data %in% c("15_1_2023", "15_2_2023", "15_3_2023", "27_1_2023", "9_1_2022", "9_2_2022")]
+
+saveRDS(ffy_id_dat, here("Data","Processed","ffy_id_list.rds"))
+
+ for(i in 101:length(ffy_id_dat)){
+  # Choose the experimental trial field from the list
+  ffy_id <-  ffy_id_dat[i]
+  
+    exp_tb <- exp_geom <- combined_tb <- combined_sf <- NULL 
+    
+    # Read exp data table and exp sf polygon data frame
+    # Separate exp_geom for the faster computing
+
+    exp_tb <- readRDS(here("Data","Raw","exp_tb_data",paste0(ffy_id,"_tb.rds")))
+   
+     exp_tb <- unique(exp_tb, by = "obs_id")
+    exp_geom <- st_geometry(exp_tb$geom)
+    exp_sf <- st_sf(exp_tb[,1], geometry = exp_geom)
+    exp_tb <- exp_tb[,-'geom'] 
+    
+   non_exp_dat <- NULL
+ # Get non-exp variables; topography data (DEM) , soil survey data (SSURGO)
+
+  non_exp_dat  <- get_non_exp_data(ffy_id)
+
+ topo_values  <- soils_sf <- soils_dat <- soils_values <- NULL
+
+# Extract topography characteristics values from DEM 
+# (by calculating wegithed mean of the processed experimental polygon)
+topo_values <-  non_exp_dat$topo_dem %>%
+  stars_to_stack() %>%
+  exact_extract(., st_transform(exp_sf, st_crs(.))) %>%
+  rbindlist(idcol = "rowid") %>%
+  .[,
+    lapply(.SD, weighted.mean, w = coverage_fraction),
+    by = rowid, 
+    .SDcols = paste0("layer.", 1:length(non_exp_dat$topo_dem))
+  ] %>%
+  .[, rowid := NULL] %>%
+  setnames(names(.), names(non_exp_dat$topo_dem)) %>%
+  rename(elev= names(non_exp_dat$topo_dem[1]))
+
+# Extract soil characteristics values from SSURGO
+# (by calculating wegithed mean of the processed experimental polygon)
+
+soils_sf <-  non_exp_dat$ssurgo %>% st_transform(st_crs(exp_sf))
+
+soils_dat <- dplyr::select(exp_sf, obs_id) %>%
+  st_intersection(., soils_sf) %>%
+  mutate(area = as.numeric(st_area(.))) %>%
+  data.table()
+
+soils_values <- soils_dat %>%
+  .[, area_pct := area / sum(area), by = obs_id] %>%
+  .[,
+    lapply(.SD, weighted.mean, w =area_pct),
+    by = obs_id,
+    .SDcols = c("clay", "sand", "silt", "water_storage")
+  ] %>%
+  .[, obs_id := NULL]
+
+
+# combine data table of experimental and non-experimental variables 
+combined_tb <- cbind(exp_tb, topo_values, soils_values)
+
+# combine data table with geometry 
+combined_sf <- combined_tb %>% st_as_sf(geom = exp_geom)
+  
+saveRDS(combined_sf, here("Data","Processed","Analysis_ready",paste0(ffy_id,"_merged_data.rds")))
+
+ }
+
+
+for(i in 1:length(ffy_id_dat )){
+  # Choose the experimental trial field from the list
+  ffy_id <-  ffy_id_dat[i]
+
+  # Unpacking (read) the trial field specific information 
+    source(here("Code","Functions","unpack_trial_info.R"))  
+
+
+weather_info <- weather_input_info  <- NULL
+
+# Add weather informaion of the trial year and 30 year average
+# (in-seaon total preciptation and Gdd)
+weather_info <- calc_prcp_gdd_edd(ffy_id) 
+
+# make data table with weather and field input information
+weather_input_info <- trial_info %>% 
+  as.data.table() %>%
+  setnames(tolower(names(.))) %>%
+  .[input_type %in% c("NH3", "urea", "uan32", "uan28", "1_2_1(36)", "LAN(26)", "MAP", "1_0_0", "1_0_1", "2_3_2(22)",
+                       "15_10_6", "3_0_1", "2_3_4(32)", "4_3_4(33)", "5_1_5", "Sp", "N_equiv", "24-0-0-3 UAN","chicken_manure"), 
+    .(ffy_id,
+    input_type, unit, gc_rate, 
+       prcp_5 = weather_info$prcp_5, gdd_5 = weather_info$gdd_5,edd_5 = weather_info$edd_5,
+      prcp_30 = weather_info$prcp_30, gdd_30 = weather_info$gdd_30, edd_30 = weather_info$edd_30,
+        prcp_t = weather_info$prcp_t, gdd_t = weather_info$gdd_t, edd_t = weather_info$edd_t
+    )]
+
+### combined_sf, weather_info, input_info
+saveRDS(weather_input_info, here("Data","Processed","Analysis_ready",paste0(ffy_id,"_weather_info.rds")))
+}
+
+
+```
