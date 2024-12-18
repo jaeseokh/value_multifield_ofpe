@@ -6,6 +6,28 @@ library(sf)
 
 ### Variable name uniformity  ##
 
+
+# Function to safely convert to POSIXct using mdy_hms if necessary
+convert_to_datetime <- function(time_value) {
+  # Check if time_value is already in Date or POSIXct format
+  if (inherits(time_value, "Date") | inherits(time_value, "POSIXct")) {
+    return(time_value)  # Return as is if already in the correct format
+  }
+  
+  # If time_value is logical or not in the correct format, use mdy_hms to convert
+  if (is.logical(time_value) | is.character(time_value)) {
+    tryCatch({
+      return(mdy_hms(time_value))  # Attempt to convert using mdy_hms
+    }, error = function(e) {
+      return(NA)  # If conversion fails, return NA
+    })
+  }
+  
+  return(NA)  # Return NA if the type is unrecognized
+}
+
+
+
 # 1. choose all type of seed and nitrogen rate variable names
 vars_to_select <- c("obs_id","yield", "seed_rate", "s_rate", "n_rate", "uan32_rate", "nh3_rate", "uan28_rate", "urea_rate")
 
@@ -68,4 +90,6 @@ price_tab <- price_tab %>% data.table() %>%
     setnames(names(.), tolower(names(.))) %>%        
      setnames("state ansi", "fips") %>%
      .[period=='YEAR',.(year, fips, s_rate =as.numeric(gsub("[^0-9.]", "", value))/1000)] 
+
+
 

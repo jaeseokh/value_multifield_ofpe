@@ -118,6 +118,7 @@ ffy_weather_info <- list.files(here("Data","Processed","Analysis_ready")) %>%
 
 ffy_id_dat <-readRDS(here("Data","Processed","ffy_id_list.rds"))
 
+
 match(ffy_merged_dat, ffy_weather_info)
 match(ffy_merged_dat, ffy_id_dat)
 
@@ -146,8 +147,10 @@ for(i in 1:length(ffy_merged_dat)) {
 
   info_tb <- readRDS(here("Data", "Processed", "Analysis_ready", paste0(ffy_id, "_weather_info.rds")))
  
-  dat_tb[, c("prcp_t", "gdd_t") := .(info_tb$prcp_t, info_tb$gdd_t)]
-
+  dat_tb[, c("prcp_t", "gdd_t","edd_t","gdd_stg","edd_stg","gdd_stg_n","edd_stg_n","y_time","n_time","s_time") 
+        := .(info_tb$prcp_t, info_tb$gdd_t,info_tb$edd_t,info_tb$stage_gdd_t, info_tb$stage_edd_t,
+          info_tb$stage_gdd_nitrogen,info_tb$stage_edd_nitrogen,info_tb$yield_time,info_tb$n_time,info_tb$s_time)]
+ 
   dat_tb_list[[i]] <- dat_tb
   info_tb_list[[i]] <- info_tb
 }
@@ -155,15 +158,14 @@ for(i in 1:length(ffy_merged_dat)) {
   dat_bind <-bind_rows(dat_tb_list)
   info_bind <- bind_rows(info_tb_list)
 
- # saveRDS(dat_bind,here("Data", "Processed", "Analysis_ready", "dat_binded.rds"))
- # saveRDS(info_bind,here("Data", "Processed", "Analysis_ready", "info_binded.rds"))
+   saveRDS(dat_bind,here("Data", "Processed", "Analysis_ready", "dat_binded.rds"))
+    saveRDS(info_bind,here("Data", "Processed", "Analysis_ready", "info_binded.rds"))
 
 
 ```
 
 
-
-###### combine list data and add weather variables ( gdd_tot, prcp_tot)
+###### Basic statistical check-up of data
  
 # Create test_data and train_data using data.table
 
@@ -172,9 +174,101 @@ for(i in 1:length(ffy_merged_dat)) {
  dat_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "dat_binded.rds"))
 info_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "info_binded.rds"))
 
+
+
 # Define relevant columns
 relevant_columns <- c("yield", "n_rate", "elev", "slope","aspect", "tpi", "clay", 
-                      "sand", "silt", "water_storage", "prcp_t", "gdd_t")
+                      "sand", "silt", "water_storage", "prcp_t", "gdd_t","edd_t")
+
+
+#1. n_range and distributino of n 
+
+hist(dat_binded$n_rate)
+hist(dat_binded$prcp_t)
+hist(dat_binded$gdd_t)
+hist(dat_binded$edd_t)
+
+quantile(dat_binded$n_rate, seq(0,1,0.05))
+hist(dat_binded$n_rate)
+
+# okay let's think about the single field case
+# what is the potential feature of single field OFPE data
+
+# Function to classify and predict yield-N response for each field
+# Function to classify yield-N response for a single field
+classify_yield_response <- function(data) {
+  # Filter for unique ffy_id
+  field_data <- data
+  
+  # Ensure there are enough rows to fit a model
+  if (nrow(field_data) < 3) {
+    return(data.frame(ffy_id = unique(field_data$ffy_id), classification = NA))
+  }
+  
+  # Fit quadratic model
+  model <- lm(yield ~ n_rate + I(n_rate^2), data = field_data)
+  coeffs <- coef(model)
+  b1 <- coeffs[2]
+  b2 <- coeffs[3]
+  
+  # Classify based on coefficients
+  classification <- if (b2 < 0) {
+    if (b1 > 0) {
+      "Concave: Increases with N"
+    } else {
+      "Concave: Decreases with N"
+    }
+  } else {
+    if (b1 > 0) {
+      "Convex: Increases with N"
+    } else {
+      "Convex: Decreases with N"
+    }
+  }
+  
+  # Add classification to the original data
+  field_data$classification <- classification
+  return(field_data)
+}
+
+# Apply classification to all fields
+classified_data <- dat_binded %>%
+  group_by(ffy_id) %>%
+  group_modify(~ classify_yield_response(.)) %>%
+  ungroup()
+
+# Plot yield-N response curves by response type (facet_wrap)
+yield_n_by_type <- ggplot(classified_data, aes(x = n_rate, y = yield, group = ffy_id, color = ffy_id)) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2), se = FALSE, size = 1) +
+  facet_wrap(~ classification, scales = "free_y") +
+  labs(
+    title = "Yield-N Response Curves by Response Type",
+    x = "Nitrogen Rate",
+    y = "Yield",
+    color = "Field ID"
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 10, face = "bold"),
+    plot.title = element_text(size = 14, face = "bold"),
+    legend.position = "bottom"
+  )
+
+
+```
+
+```{r xgboost to predict field -i , cache = T, results = "hide"}
+ 
+ dat_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "dat_binded.rds"))
+info_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "info_binded.rds"))
+
+# Define relevant columns
+relevant_columns <- c("yield", "n_rate", "elev", "slope","aspect", "tpi", "clay", 
+                      "sand", "silt", "water_storage", "prcp_t", "gdd_t","edd_t")
+
+
+
+dat_binded <- dat_scaled
 
 # Initialize lists to store models and predictions
 xgb_model_list <- list()
@@ -501,12 +595,88 @@ cat("Number of elements in combined cf_model_list:", length(combined_cf_model_li
 
  xgb_model_list <- readRDS(here("Data","Processed","Analysis_results","xgb_model_list.rds"))
  xgb_pred_list <- readRDS(here("Data","Processed","Analysis_results","xgb_preds_list.rds"))
+
+
+#### Let's try to grasp the specialty of the dat_binded data
+# how I can utilize the yield_time, s_time, n_time 
+
+
+# Create the histogram of n_rate by 10
+ggplot(dat_binded, aes(x = n_rate)) +
+  geom_histogram(binwidth = 10, color = "black", fill = "lightblue") +
+  labs(title = "Histogram of Nitrogen Rate (n_rate)",
+       x = "Nitrogen Rate (n_rate)",
+       y = "Frequency") +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+
+# Step 1: Calculate min and max n_rate for each ffy_id and check the condition
+ffy_id_condition_met <- dat_binded %>%
+  group_by(ffy_id) %>%
+  summarize(
+    min_n_rate = min(n_rate),
+    max_n_rate = max(n_rate),
+    satisfies_condition = min_n_rate <= 175 & max_n_rate >= 225
+  ) %>%
+  filter(satisfies_condition == TRUE)
+
+# Step 2: Get the ffy_id that satisfy the condition
+ffy_ids_to_keep <- ffy_id_condition_met$ffy_id
+
+# Step 3: Filter dat_binded to keep only the rows with ffy_id that satisfy the condition
+dat_scaled <- dat_binded %>%
+  filter(ffy_id %in% ffy_ids_to_keep) %>%
+  filter(n_rate >= 175 &  n_rate <= 225) %>%
+  filter(yield  >100 & yield < 300)
  
+hist(dat_scaled$n_rate)
+length(unique(dat_scaled$ffy_id))
+dim(dat_scaled)
+
+
+
+
+
+# Placeholder list for variable importance rankings
+var_importance_list <- list()
+
+# Iterate through the list of XGBoost models
+for (i in seq_along(xgb_model_list)) {
+  # Extract variable importance
+  var_importance <- xgb.importance(model = xgb_model_list[[i]])
+  
+  # Rank variables based on "Gain"
+  ranked_vars <- var_importance %>%
+    arrange(desc(Gain)) %>%
+    pull(Feature)  # Extract only the variable names in ranked order
+  
+  # Store the ranked variables with field name
+  var_importance_list[[i]] <- data.frame(Field = paste0("Field", i), t(ranked_vars))
+}
+
+# Combine all field-level rankings into a single data frame
+ranked_table <- bind_rows(var_importance_list)
+
+# Set field names as row names
+row.names(ranked_table) <- ranked_table$Field
+ranked_table <- ranked_table[, -1]  # Remove the Field column from the data frame
+
+# View the final table
+print(ranked_table)
+
+library(flextable)
+var_imp_tab <-ranked_table %>% flextable()
+
+
+
 rf_model_list <- readRDS(here("Data", "Processed","Analysis_results","rf_model_list_nov18.rds"))
 rf_pred_list <- readRDS(here("Data", "Processed", "Analysis_results","rf_pred_list_nov18.rds"))
 
 cf_model_list <- readRDS(here("Data", "Processed","Analysis_results","cf_model_list.rds"))
 cf_pred_list <- readRDS(here("Data", "Processed", "Analysis_results","cf_pred_list.rds"))
+
+
 
 result_tab_list <- list()
 

@@ -1,11 +1,11 @@
 
 
-# Function to calculate in-season total precipitation and GDD
+# Revised function to calculate stage-specific GDD and EDD with proper NA handling
 
-calc_prcp_gdd_edd <- function(ffy_id) {
+calc_stage_specific_gdd_edd <- function(ffy_id) {
   # Extract centroid of the field boundary
   ffy_year <- temp_daymet <- daymet_t <- daymet_30 <- boundary_sf <- centroid <- NULL
-
+  
   boundary_sf <- readRDS(here("Data", "Raw", "exp_bdry_data", paste0(ffy_id, "_bdry.rds")))
   
   centroid <- boundary_sf %>% 
@@ -25,7 +25,7 @@ calc_prcp_gdd_edd <- function(ffy_id) {
     .$data %>% 
     data.table()
 
-  # Derive in-season total precipitation, GDD, and EDD for the trial year
+  # Extract trial year data
   daymet_t <- temp_daymet %>%
     filter(year == ffy_year) %>%
     rename(prcp = prcp..mm.day., tmax = tmax..deg.c., tmin = tmin..deg.c.) %>%
@@ -43,42 +43,77 @@ calc_prcp_gdd_edd <- function(ffy_id) {
       edd_t = round(sum(edd, na.rm = TRUE), 1)
     )
 
-  # Derive in-season total precipitation, GDD, and EDD for the recent 5-year average
+  # Calculate 5-year averages (including ffy_year)
   daymet_5 <- temp_daymet %>%
-    filter(year %in% (ffy_year - 4):ffy_year) %>%
+    filter(year >= (ffy_year - 4) & year <= ffy_year) %>%
     rename(prcp = prcp..mm.day., tmax = tmax..deg.c., tmin = tmin..deg.c.) %>%
     mutate(
       gdd = ifelse(tmax > 10, (tmax + tmin) * 0.5 - 10, 0),
       gdd = pmax(gdd, 0),
       edd = ifelse(tmax > 30, tmax - 30, 0)
     ) %>%
-    dplyr::select(prcp, tmax, tmin, yday, gdd, edd, year) %>%
-    mutate(month = day_to_month(yday)) %>%
-    filter(month %in% c('Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep')) %>%
     summarize(
-      prcp_5 = round(sum(prcp, na.rm = TRUE) / 5, 1),
-      gdd_5 = round(sum(gdd, na.rm = TRUE) / 5, 1),
-      edd_5 = round(sum(edd, na.rm = TRUE) / 5, 1)
+      prcp_5 = round(mean(prcp, na.rm = TRUE), 1),
+      gdd_5 = round(mean(gdd, na.rm = TRUE), 1),
+      edd_5 = round(mean(edd, na.rm = TRUE), 1)
     )
 
-  # Derive in-season total precipitation, GDD, and EDD for the 30-year average
+  # Calculate 30-year averages (including ffy_year)
   daymet_30 <- temp_daymet %>%
+    filter(year >= (ffy_year - 30) & year <= ffy_year) %>%
     rename(prcp = prcp..mm.day., tmax = tmax..deg.c., tmin = tmin..deg.c.) %>%
     mutate(
       gdd = ifelse(tmax > 10, (tmax + tmin) * 0.5 - 10, 0),
       gdd = pmax(gdd, 0),
       edd = ifelse(tmax > 30, tmax - 30, 0)
     ) %>%
-    dplyr::select(prcp, tmax, tmin, yday, gdd, edd, year) %>%
-    mutate(month = day_to_month(yday)) %>%
-    filter(month %in% c('Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep')) %>%
     summarize(
-      prcp_30 = round(sum(prcp, na.rm = TRUE) / length(unique(temp_daymet$year)), 1),
-      gdd_30 = round(sum(gdd, na.rm = TRUE) / length(unique(temp_daymet$year)), 1),
-      edd_30 = round(sum(edd, na.rm = TRUE) / length(unique(temp_daymet$year)), 1)
+      prcp_30 = round(mean(prcp, na.rm = TRUE), 1),
+      gdd_30 = round(mean(gdd, na.rm = TRUE), 1),
+      edd_30 = round(mean(edd, na.rm = TRUE), 1)
     )
 
-  # Return the results as a list
+  # Get the planting (s_time), nitrogen application (n_time), and harvest time (yield_time) from date_info
+  s_time <- date_info %>% filter(ffy_id_in == ffy_id) %>% pull(s_time) %>% first()
+  n_time <- date_info %>% filter(ffy_id_in == ffy_id) %>% pull(n_time) %>% first()
+  yield_time <- date_info %>% filter(ffy_id_in == ffy_id) %>% pull(yield_time) %>% first()
+
+  # Calculate GDD_t and EDD_t for the period between planting and harvest (or nitrogen to harvest)
+  # In-season GDD and EDD from planting (s_time) to harvest (yield_time) or nitrogen (n_time)
+  stage_gdd_edd <- temp_daymet %>%
+    filter(year == ffy_year) %>%
+    rename(prcp = prcp..mm.day., tmax = tmax..deg.c., tmin = tmin..deg.c.) %>%
+    mutate(
+      # Calculate GDD and EDD only between planting (s_time) and harvest (yield_time)
+      in_season = (yday >= as.numeric(format(s_time, "%j"))) & (yday <= as.numeric(format(yield_time, "%j"))),
+      gdd_stage = ifelse(tmax > 10, (tmax + tmin) * 0.5 - 10, 0),
+      gdd_stage = pmax(gdd_stage, 0),
+      edd_stage = ifelse(tmax > 30, tmax - 30, 0)
+    ) %>%
+    filter(in_season) %>%
+    summarize(
+      stage_gdd_t = sum(gdd_stage, na.rm = TRUE),
+      stage_edd_t = sum(edd_stage, na.rm = TRUE)
+    )
+
+  # Calculate GDD and EDD for nitrogen to harvest (n_time to yield_time)
+  stage_gdd_edd_nitrogen <- temp_daymet %>%
+    filter(year == ffy_year) %>%
+    rename(prcp = prcp..mm.day., tmax = tmax..deg.c., tmin = tmin..deg.c.) %>%
+    mutate(
+      # Calculate GDD and EDD for the period between nitrogen application and harvest
+      in_season_nitrogen = (yday >= as.numeric(format(n_time, "%j"))) & (yday <= as.numeric(format(yield_time, "%j"))),
+      gdd_stage_nitrogen = ifelse(tmax > 10, (tmax + tmin) * 0.5 - 10, 0),
+      gdd_stage_nitrogen = pmax(gdd_stage_nitrogen, 0),
+      edd_stage_nitrogen = ifelse(tmax > 30, tmax - 30, 0)
+    ) %>%
+    filter(in_season_nitrogen) %>%
+    summarize(
+      stage_gdd_nitrogen = sum(gdd_stage_nitrogen, na.rm = TRUE),
+      stage_edd_nitrogen = sum(edd_stage_nitrogen, na.rm = TRUE)
+    )
+
+  # Return the results as a list including the new stage-specific GDD and EDD
   return(list(
     prcp_t = daymet_t$prcp_t, 
     gdd_t = daymet_t$gdd_t, 
@@ -88,9 +123,20 @@ calc_prcp_gdd_edd <- function(ffy_id) {
     edd_5 = daymet_5$edd_5,
     prcp_30 = daymet_30$prcp_30, 
     gdd_30 = daymet_30$gdd_30, 
-    edd_30 = daymet_30$edd_30
+    edd_30 = daymet_30$edd_30,
+    stage_gdd_t = stage_gdd_edd$stage_gdd_t,
+    stage_edd_t = stage_gdd_edd$stage_edd_t,
+    stage_gdd_nitrogen = stage_gdd_edd_nitrogen$stage_gdd_nitrogen,
+    stage_edd_nitrogen = stage_gdd_edd_nitrogen$stage_edd_nitrogen,
+    s_time = s_time,
+    n_time = n_time,
+    yield_time = yield_time
   ))
 }
+
+
+
+
 
 
 

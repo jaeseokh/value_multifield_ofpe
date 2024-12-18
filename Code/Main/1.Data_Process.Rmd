@@ -100,6 +100,8 @@ ffy_id_bdry <- list.files(here("Data","Raw","exp_bdry_data")) %>%
  str_subset("_bdry.rds") %>%
    str_remove("_bdry.rds")  
 
+
+
 # Check if ffy_id in the trial field list and boundary list are matched
 match(ffy_id_data,ffy_id_bdry)
 
@@ -184,6 +186,25 @@ saveRDS(combined_sf, here("Data","Processed","Analysis_ready",paste0(ffy_id,"_me
  }
 
 
+### Read date info to grab harvest and application date 
+
+date_info_raw <- readRDS(here("Data","Raw","date_product_info.rds") )
+
+date_info <- date_info_raw %>% filter(ffy_id %in% ffy_id_dat   )  %>%
+               dplyr::select(ffy_id,yield_time,n_time,s_time) %>%
+                rename(ffy_id_in = ffy_id)
+
+
+date_info_png  <- date_info %>% 
+  flextable() %>%
+  width(j = 2:4, width = 2.5) %>%    # Adjust column width for columns 2 to 4
+  width(j = 1, width = 1.5) %>%     # Adjust width for column 1
+  autofit() %>%
+  set_caption("Sample Flextable with Adjusted Width")
+
+save_as_image(date_info_png, path = here("Data","Processed","date_info.png"))
+
+
 for(i in 1:length(ffy_id_dat )){
   # Choose the experimental trial field from the list
   ffy_id <-  ffy_id_dat[i]
@@ -191,29 +212,29 @@ for(i in 1:length(ffy_id_dat )){
   # Unpacking (read) the trial field specific information 
     source(here("Code","Functions","unpack_trial_info.R"))  
 
-
 weather_info <- weather_input_info  <- NULL
 
-# Add weather informaion of the trial year and 30 year average
-# (in-seaon total preciptation and Gdd)
-weather_info <- calc_prcp_gdd_edd(ffy_id) 
+# Add weather information of the trial year and 30-year average (in-season total precipitation, GDD, and EDD)
+  weather_info <- calc_stage_specific_gdd_edd(ffy_id)  # Use the updated function
 
-# make data table with weather and field input information
-weather_input_info <- trial_info %>% 
-  as.data.table() %>%
-  setnames(tolower(names(.))) %>%
-  .[input_type %in% c("NH3", "urea", "uan32", "uan28", "1_2_1(36)", "LAN(26)", "MAP", "1_0_0", "1_0_1", "2_3_2(22)",
-                       "15_10_6", "3_0_1", "2_3_4(32)", "4_3_4(33)", "5_1_5", "Sp", "N_equiv", "24-0-0-3 UAN","chicken_manure"), 
-    .(ffy_id,
-    input_type, unit, gc_rate, 
-       prcp_5 = weather_info$prcp_5, gdd_5 = weather_info$gdd_5,edd_5 = weather_info$edd_5,
-      prcp_30 = weather_info$prcp_30, gdd_30 = weather_info$gdd_30, edd_30 = weather_info$edd_30,
-        prcp_t = weather_info$prcp_t, gdd_t = weather_info$gdd_t, edd_t = weather_info$edd_t
-    )]
+  # Make data table with weather and field input information
+  weather_input_info <- trial_info %>% 
+    as.data.table() %>%
+    setnames(tolower(names(.))) %>%
+    .[input_type %in% c("NH3", "urea", "uan32", "uan28", "1_2_1(36)", "LAN(26)", "MAP", "1_0_0", "1_0_1", "2_3_2(22)",
+                        "15_10_6", "3_0_1", "2_3_4(32)", "4_3_4(33)", "5_1_5", "Sp", "N_equiv", "24-0-0-3 UAN","chicken_manure"), 
+      .(ffy_id,
+        input_type, unit, gc_rate, 
+        prcp_5 = weather_info$prcp_5, gdd_5 = weather_info$gdd_5, edd_5 = weather_info$edd_5,
+        prcp_30 = weather_info$prcp_30, gdd_30 = weather_info$gdd_30, edd_30 = weather_info$edd_30,
+        prcp_t = weather_info$prcp_t, gdd_t = weather_info$gdd_t, edd_t = weather_info$edd_t,
+        stage_gdd_t = weather_info$stage_gdd_t, stage_edd_t = weather_info$stage_edd_t, 
+        stage_gdd_nitrogen = weather_info$stage_gdd_nitrogen, stage_edd_nitrogen = weather_info$stage_edd_nitrogen,
+        s_time = weather_info$s_time, n_time = weather_info$n_time, yield_time = weather_info$yield_time
+      )]
 
-### combined_sf, weather_info, input_info
-saveRDS(weather_input_info, here("Data","Processed","Analysis_ready",paste0(ffy_id,"_weather_info.rds")))
+  # Save the weather input information to a file
+  saveRDS(weather_input_info, here("Data", "Processed", "Analysis_ready", paste0(ffy_id, "_weather_info.rds")))
 }
-
 
 ```
