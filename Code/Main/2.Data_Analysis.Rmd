@@ -100,176 +100,30 @@ source(here("Code","Functions","functions_for_analysis.R"))
 
 ```
 
-
-
-
-```{r data sort for combined analysis, cache = T, results = "hide"}
-  
-### Check all the field_year list (ffy) in the processed data(Analysis_Ready) folder
-
-ffy_merged_dat <- list.files(here("Data","Processed","Analysis_ready")) %>%
- str_subset("_merged_data.rds") %>%
-   str_remove("_merged_data.rds")
-
-
-ffy_weather_info <- list.files(here("Data","Processed","Analysis_ready")) %>%
- str_subset("_weather_info.rds") %>%
-   str_remove("_weather_info.rds")
-
-ffy_id_dat <-readRDS(here("Data","Processed","ffy_id_list.rds"))
-
-
-match(ffy_merged_dat, ffy_weather_info)
-match(ffy_merged_dat, ffy_id_dat)
-
-```
-
-
-```{r xgboost & random forest data setup , cache = T, results = "hide"}
-
-# Combine merged data and weather info data
-info_tb_list <- list()
-dat_tb_list <- list()
-
-for(i in 1:length(ffy_merged_dat)) {
-  
-  ffy_id <- ffy_merged_dat[i]
-  # Read Sf data and weather info table
-  dat_sf <- readRDS(here("Data", "Processed", "Analysis_ready", paste0(ffy_id, "_merged_data.rds")))
-
-  dat_sf <- dat_sf %>% st_transform(4326)
- # Drop geometry and convert to data.table
-  dat_tb <- dat_sf %>% st_drop_geometry() %>% as.data.table()
-  
-  dat_tb$ffy_id <- ffy_id
-
-  dat_tb[, c("farm", "field", "year") := tstrsplit(ffy_id, "_", type.convert = TRUE)]
-
-  info_tb <- readRDS(here("Data", "Processed", "Analysis_ready", paste0(ffy_id, "_weather_info.rds")))
+```{r set up field data and info , cache = T, results = "hide"}
  
-  dat_tb[, c("prcp_t", "gdd_t","edd_t","gdd_stg","edd_stg","gdd_stg_n","edd_stg_n","y_time","n_time","s_time") 
-        := .(info_tb$prcp_t, info_tb$gdd_t,info_tb$edd_t,info_tb$stage_gdd_t, info_tb$stage_edd_t,
-          info_tb$stage_gdd_nitrogen,info_tb$stage_edd_nitrogen,info_tb$yield_time,info_tb$n_time,info_tb$s_time)]
- 
-  dat_tb_list[[i]] <- dat_tb
-  info_tb_list[[i]] <- info_tb
-}
-
-  dat_bind <-bind_rows(dat_tb_list)
-  info_bind <- bind_rows(info_tb_list)
-
-   saveRDS(dat_bind,here("Data", "Processed", "Analysis_ready", "dat_binded.rds"))
-    saveRDS(info_bind,here("Data", "Processed", "Analysis_ready", "info_binded.rds"))
-
-
-```
-
-
-###### Basic statistical check-up of data
- 
-# Create test_data and train_data using data.table
-
-```{r xgboost to predict field -i , cache = T, results = "hide"}
- 
- dat_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "dat_binded.rds"))
+dat_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "dat_binded.rds"))
 info_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "info_binded.rds"))
+n_table <- readRDS(here("Data", "Processed", "Analysis_ready","n_table_anony.RDS"))
 
+base_ffy <-n_table$ffy_id[which(n_table$N_base !=0)]
 
+dat_nozero <- dat_binded %>% filter( ffy_id  %in% base_ffy )  %>%
+           dplyr::select(yield,n_rate,elev,slope,aspect,tpi,clay,sand
+           ,silt,water_storage,prcp_t,gdd_t,edd_t,ffy_id)  # 72 field-year data
+
+dat_nozero <- na.omit(dat_nozero)
+
+#  Use GAM (Generalized Additive Model) to model within-field responses.
 
 # Define relevant columns
-relevant_columns <- c("yield", "n_rate", "elev", "slope","aspect", "tpi", "clay", 
-                      "sand", "silt", "water_storage", "prcp_t", "gdd_t","edd_t")
-
-
-#1. n_range and distributino of n 
-
-hist(dat_binded$n_rate)
-hist(dat_binded$prcp_t)
-hist(dat_binded$gdd_t)
-hist(dat_binded$edd_t)
-
-quantile(dat_binded$n_rate, seq(0,1,0.05))
-hist(dat_binded$n_rate)
-
-# okay let's think about the single field case
-# what is the potential feature of single field OFPE data
-
-# Function to classify and predict yield-N response for each field
-# Function to classify yield-N response for a single field
-classify_yield_response <- function(data) {
-  # Filter for unique ffy_id
-  field_data <- data
-  
-  # Ensure there are enough rows to fit a model
-  if (nrow(field_data) < 3) {
-    return(data.frame(ffy_id = unique(field_data$ffy_id), classification = NA))
-  }
-  
-  # Fit quadratic model
-  model <- lm(yield ~ n_rate + I(n_rate^2), data = field_data)
-  coeffs <- coef(model)
-  b1 <- coeffs[2]
-  b2 <- coeffs[3]
-  
-  # Classify based on coefficients
-  classification <- if (b2 < 0) {
-    if (b1 > 0) {
-      "Concave: Increases with N"
-    } else {
-      "Concave: Decreases with N"
-    }
-  } else {
-    if (b1 > 0) {
-      "Convex: Increases with N"
-    } else {
-      "Convex: Decreases with N"
-    }
-  }
-  
-  # Add classification to the original data
-  field_data$classification <- classification
-  return(field_data)
-}
-
-# Apply classification to all fields
-classified_data <- dat_binded %>%
-  group_by(ffy_id) %>%
-  group_modify(~ classify_yield_response(.)) %>%
-  ungroup()
-
-# Plot yield-N response curves by response type (facet_wrap)
-yield_n_by_type <- ggplot(classified_data, aes(x = n_rate, y = yield, group = ffy_id, color = ffy_id)) +
-  geom_smooth(method = "lm", formula = y ~ poly(x, 2), se = FALSE, size = 1) +
-  facet_wrap(~ classification, scales = "free_y") +
-  labs(
-    title = "Yield-N Response Curves by Response Type",
-    x = "Nitrogen Rate",
-    y = "Yield",
-    color = "Field ID"
-  ) +
-  theme_minimal() +
-  theme(
-    strip.text = element_text(size = 10, face = "bold"),
-    plot.title = element_text(size = 14, face = "bold"),
-    legend.position = "bottom"
-  )
-
+reg_col <- c("yield", "n_rate", "elev", "slope","aspect", "clay", 
+        "sand", "silt", "water_storage", "prcp_t", "gdd_t","edd_t")
 
 ```
 
-```{r xgboost to predict field -i , cache = T, results = "hide"}
+```{r xgboost , cache = T, results = "hide"}
  
- dat_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "dat_binded.rds"))
-info_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "info_binded.rds"))
-
-# Define relevant columns
-relevant_columns <- c("yield", "n_rate", "elev", "slope","aspect", "tpi", "clay", 
-                      "sand", "silt", "water_storage", "prcp_t", "gdd_t","edd_t")
-
-
-
-dat_binded <- dat_scaled
-
 # Initialize lists to store models and predictions
 xgb_model_list <- list()
 xgb_preds_list <- list()
@@ -280,8 +134,8 @@ plan(multisession, workers = parallel::detectCores() - 1)
 # Function to train and predict for one fold
 process_xgb <- function(i) {
   # Split the data into train and test sets
-  test_data <- dat_binded[ffy_id == ffy_merged_dat[i], ..relevant_columns]
-  train_data <- dat_binded[ffy_id != ffy_merged_dat[i], ..relevant_columns]
+  test_data <- dat_nozero[ffy_id == base_ffy[i], ..reg_col]
+  train_data <- dat_nozero[ffy_id != base_ffy[i],..reg_col]
   
   # Remove rows with missing values
   train_data <- na.omit(train_data)
@@ -312,7 +166,8 @@ process_xgb <- function(i) {
     max_depth = 6,
     eta = 0.1,
     subsample = 0.8,
-    colsample_bytree = 0.8
+    colsample_bytree = 0.8,
+    nthread =1
   )
   
   # Train the XGBoost model with early stopping
@@ -320,7 +175,7 @@ process_xgb <- function(i) {
   xgb_model <- xgb.train(
     params = params,
     data = dtrain,
-    nrounds = 500,
+    nrounds = 200,
     watchlist = watchlist,
     early_stopping_rounds = 10,
     print_every_n = 10,
@@ -336,7 +191,8 @@ process_xgb <- function(i) {
 
 # Run the process in parallel
 start_time <- Sys.time()
-results <- future_lapply(1:length(ffy_merged_dat), process_xgb)
+plan(sequential) 
+results <- future_lapply(1:length(base_ffy), process_xgb)
 end_time <- Sys.time()
 
 # Extract models and predictions
@@ -344,8 +200,12 @@ xgb_model_list <- lapply(results, function(x) x$model)
 xgb_preds_list <- lapply(results, function(x) x$predictions)
 
 # Save results
-saveRDS(xgb_model_list, here("Data", "Processed", "Analysis_results", "xgb_model_list.rds"))
-saveRDS(xgb_preds_list, here("Data", "Processed", "Analysis_results", "xgb_preds_list.rds"))
+# saveRDS(xgb_model_list, here("Data", "Processed", "Analysis_results", "xgb_model_list.rds"))
+# saveRDS(xgb_preds_list, here("Data", "Processed", "Analysis_results", "xgb_preds_list.rds"))
+
+ saveRDS(xgb_model_list, here("Data", "Processed", "Analysis_results", "xgb_model_list_nozero.rds"))
+ saveRDS(xgb_preds_list, here("Data", "Processed", "Analysis_results", "xgb_preds_list_nozero.rds"))
+
 
 # Reset the parallel backend
 plan(sequential)
@@ -355,60 +215,60 @@ print(end_time - start_time)
 
 ```
 
-```{r random forest to predict field -i , cache = T, results = "hide"}
+```{r random forest , cache = T, results = "hide"}
  
-##### Random Forest
+# Define the predictor columns
+reg_col <- c("yield", "n_rate", "elev", "slope", "aspect", "clay", 
+                 "sand", "silt", "water_storage", "prcp_t", "gdd_t", "edd_t")
 
- dat_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "dat_binded.rds"))
- info_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "info_binded.rds"))
+# Ensure dat_nozero is a data.table and remove NA values
 
-# Define parallel backend
-plan(multisession, workers = parallel::detectCores() - 1)  # Use one less core than available
+setDT(dat_nozero)
+dat_nozero <- na.omit(dat_nozero)
 
-# Define relevant columns
-relevant_columns <- c("yield", "n_rate", "elev", "slope","aspect", "tpi", "clay", 
-                      "sand", "silt", "water_storage", "prcp_t", "gdd_t")
+# Initialize list to store results
+rf_results <- vector("list", length(base_ffy))
 
-# Function to train and predict for a single fold
-process_fold <- function(i) {
-  test_data <- dat_binded[ffy_id == ffy_merged_dat[i], ..relevant_columns]
-  train_data <- dat_binded[ffy_id != ffy_merged_dat[i], ..relevant_columns]
-  
-  # Remove rows with missing values
-  train_data <- na.omit(train_data)
-  test_data <- na.omit(test_data)
-  
-  # Define the regression task
-  task <- TaskRegr$new(id = paste0("task_", i), backend = train_data, target = "yield")
-  
-  # Create the Random Forest learner with updated parameters
-  learner <- lrn("regr.ranger", 
-                 num.trees = 200, 
-                 mtry = as.integer(log2(ncol(train_data) - 1)), 
-                 min.node.size = 5, 
-                 sample.fraction = 0.7, 
-                 importance = "impurity", 
-                 replace = TRUE, 
-                 max.depth = 10)
-  
-  # Train the learner
-  learner$train(task)
-  
+# Define the function
+process_rf <- function(i, dat_nozero, base_ffy, reg_col) {
+  # Ensure ffy_id exists in the dataset
+  if (!"ffy_id" %in% names(dat_nozero)) {
+    stop("ffy_id column not found in dat_nozero")
+  }
+
+  # Select train and test data correctly
+  test_data <- dat_nozero[ffy_id == base_ffy[i], reg_col, with = FALSE]
+  train_data <- dat_nozero[ffy_id != base_ffy[i], reg_col, with = FALSE]
+
+  # Train the Random Forest model using ranger
+  rf_model <- ranger(
+    formula = yield ~ ., 
+    data = train_data, 
+    num.trees = 200, 
+    mtry = as.integer(log2(ncol(train_data) - 1)), 
+    min.node.size = 5, 
+    sample.fraction = 0.7, 
+    importance = "impurity", 
+    replace = TRUE, 
+    max.depth = 10
+  )
+
   # Make predictions on the test set
-  predictions <- learner$predict_newdata(test_data)
-  
-  # Extract predicted values
-  y_pred <- predictions$response
-  
+  y_pred <- predict(rf_model, test_data)$predictions
+
   # Return the model and predictions
-  list(model = learner, predictions = y_pred)
+  list(model = rf_model, predictions = y_pred)
 }
 
-# Parallelize the loop
+# Run in a standard for loop (SEQUENTIAL)
 start_time <- Sys.time()
-rf_results <- future_lapply(1:length(ffy_merged_dat), process_fold)
+for (i in seq_along(base_ffy)) {
+  rf_results[[i]] <- process_rf(i, dat_nozero, base_ffy, reg_columns)
+}
+
 end_time <- Sys.time()
 
+# Print execution time
 print(end_time - start_time)
 
 # Extract models and predictions
@@ -416,36 +276,20 @@ rf_model_list <- lapply(rf_results, function(x) x$model)
 rf_pred_list <- lapply(rf_results, function(x) x$predictions)
 
 # Save results
-saveRDS(rf_model_list, here("Data", "Processed", "Analysis_results", "rf_model_list.rds"))
-saveRDS(rf_pred_list, here("Data", "Processed", "Analysis_results", "rf_pred_list.rds"))
+saveRDS(rf_model_list, here("Data", "Processed", "Analysis_results", "rf_model_list_nozero.rds"))
+saveRDS(rf_pred_list, here("Data", "Processed", "Analysis_results", "rf_pred_list_nozero.rds"))
 
 # Reset the parallel backend
 plan(sequential)
-
-
-
 ```
 
-
-```{r causal forest to predict field -i , cache = T, results = "hide"}
+```{r causal forest  , cache = T, results = "hide"}
  
-##### Causal Forest
-
-# Load data
-
-dat_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "dat_binded.rds"))
-info_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "info_binded.rds"))
-
-# Define relevant columns
-relevant_columns <- c("yield", "n_rate", "elev", "slope", "tpi", "clay", 
-                      "sand", "silt", "water_storage", "prcp_t", "gdd_t")
-
-
 # Define batch size
 batch_size <- 10
 
 # Calculate the total number of batches
-num_batches <- ceiling(78/ batch_size)
+num_batches <- ceiling(72/ batch_size)
 
 # Initialize lists to store intermediate results
 cf_model_list <- list()
@@ -455,7 +299,7 @@ cf_pred_list <- list()
 for (batch in 1:num_batches) {
   # Define the range of indices for this batch
   start_idx <- (batch - 1) * batch_size + 1
-  end_idx <- min(batch * batch_size, length(ffy_merged_dat))  # Ensure it doesn't exceed the total
+  end_idx <- min(batch * batch_size, length(base_ffy))  # Ensure it doesn't exceed the total
   
   # Temporary lists for this batch
   cf_model_list_batch <- list()
@@ -463,8 +307,8 @@ for (batch in 1:num_batches) {
   
   for (i in start_idx:end_idx) {
     # Filter test and train datasets
-    test_data <- dat_binded[ffy_id == ffy_merged_dat[i], ..relevant_columns]
-    train_data <- dat_binded[ffy_id != ffy_merged_dat[i], ..relevant_columns]
+    test_data <- dat_nozero[ffy_id == base_ffy[i], ..reg_col]
+    train_data <- dat_nozero[ffy_id != base_ffy[i], ..reg_col]
     
     # Remove rows with missing values
     train_data <- na.omit(train_data)
@@ -472,7 +316,7 @@ for (batch in 1:num_batches) {
     
     # Check if sufficient data is available for training
     if (nrow(train_data) == 0 || nrow(test_data) == 0) {
-      warning(paste("Insufficient data for ffy_id:", ffy_merged_dat[i]))
+      warning(paste("Insufficient data for ffy_id:", base_ffy[i]))
       next
     }
     
@@ -503,7 +347,7 @@ for (batch in 1:num_batches) {
     cf_pred_list_batch[[i]] <- adjusted_cf_pred
     
     # Print progress
-    cat("Completed fold", i, "of", length(ffy_merged_dat), "\n")
+    cat("Completed fold", i, "of", length(base_ffy), "\n")
   }
   
   # Save each batch as a separate RDS file
@@ -539,11 +383,6 @@ combined_cf_pred_list <- do.call(c, cf_pred_list_batches)
 # Remove empty or NULL elements
 combined_cf_pred_list <- combined_cf_pred_list[!sapply(combined_cf_pred_list, is.null)]
 
-# Save the combined list (optional)
-saveRDS(combined_cf_pred_list, here("Data", "Processed", "Analysis_results", "cf_pred_list.rds"))
-
-
-
 
 # Locate all cf_model_list batch files
 model_batch_files <- list.files(
@@ -561,11 +400,141 @@ combined_cf_model_list <- do.call(c, cf_model_list_batches)
 # Remove empty or NULL elements
 combined_cf_model_list <- combined_cf_model_list[!sapply(combined_cf_model_list, is.null)]
 
+
+# Save the combined list (optional)
+saveRDS(combined_cf_pred_list, here("Data", "Processed", "Analysis_results", "cf_pred_list.rds"))
+
 # Save the combined list
 saveRDS(combined_cf_model_list, here("Data", "Processed", "Analysis_results", "cf_model_list_combined.rds"))
 
 # Verify the combined list
 cat("Number of elements in combined cf_model_list:", length(combined_cf_model_list), "\n")
+
+```
+
+
+```{r check var importance , cache = T, results = "hide"}
+
+xgb_model_list <- readRDS(here("Data", "Processed", "Analysis_results", "xgb_model_list_nozero.rds"))
+xgb_pred_list <- readRDS(here("Data", "Processed", "Analysis_results", "xgb_preds_list_nozero.rds"))
+
+rf_model_list <- readRDS(here("Data", "Processed", "Analysis_results", "rf_model_list_nozero.rds"))
+rf_pred_list  <- readRDS(here("Data", "Processed", "Analysis_results", "rf_pred_list_nozero.rds"))
+
+cf_pred_list <- readRDS(here("Data", "Processed", "Analysis_results", "cf_pred_list.rds"))
+combined_cf_model_list <- readRDS(here("Data", "Processed", "Analysis_results", "cf_model_list_combined.rds"))
+
+
+# Extract and rank variable importance from XGBoost models
+xgb_rank_tab <- bind_rows(lapply(seq_along(xgb_model_list), function(i) {
+  xgb.importance(model = xgb_model_list[[i]]) %>%
+    arrange(desc(Gain)) %>%
+    pull(Feature) %>%
+    as.data.frame() %>%
+    t() %>%
+    as.data.frame()
+})) %>% setDT()
+
+# Convert wide table to long format and count occurrences of each feature per rank
+xgb_rank_counts <- melt(xgb_rank_tab, variable.name = "Rank", value.name = "Feature") %>%
+  count(Rank, Feature) %>%
+  pivot_wider(names_from = Rank, values_from = n, values_fill = 0)
+
+# ✅ Rename columns with numeric ranks (1, 2, 3, ..., 12)
+colnames(xgb_rank_counts) <- c("Variable", as.character(1:12))
+
+# Convert to long format and sort
+xgb_rank_list <- pivot_longer(xgb_rank_counts, cols = -Variable, names_to = "Rank", values_to = "Count") %>%
+  mutate(Rank = as.numeric(Rank)) %>%  # ✅ Convert Rank to numeric
+  filter(Count > 0) %>%
+  arrange(Rank, desc(Count))
+
+# Split data into sub-tables (10 rows each)
+xgb_sub_tables <- split(xgb_rank_list, ceiling(seq_len(nrow(xgb_rank_list)) / 10))
+
+# Create Flextable list
+xgb_flextable_list <- lapply(seq_along(xgb_sub_tables), function(i) {
+  flextable(sub_tables[[i]]) %>%
+    theme_vanilla() %>%
+    autofit() %>%
+    set_caption(paste0("XGBoost: Ranked Feature Importance (Part ", i, " of ", length(sub_tables), ")"))
+})
+
+xgb_flextable_list
+
+
+# Extract and rank variable importance from Random Forest models
+rf_rank_tab <- bind_rows(lapply(seq_along(rf_model_list), function(i) {
+  rf_model_list[[i]]$variable.importance %>%
+    as.data.frame() %>%
+    rownames_to_column(var = "Feature") %>%
+    rename(Gain = ".") %>%
+    arrange(desc(Gain)) %>%
+    pull(Feature) %>%
+    t() %>%
+    as.data.frame()
+})) 
+
+# Ensure rf_rank_tab is a data.table
+setDT(rf_rank_tab)
+
+# Rename columns as Rank_1, Rank_2, Rank_3, ..., Rank_n
+setnames(rf_rank_tab, old = names(rf_rank_tab), new = paste0("Rank_", seq_along(names(rf_rank_tab))))
+
+# Convert wide table to long format and count occurrences of each feature per rank
+rf_long <- melt(rf_rank_tab, measure.vars = names(rf_rank_tab), variable.name = "Rank", value.name = "Feature")
+
+# ✅ Fix Rank naming to remove "Rank_" prefix for clean table
+rf_long[, Rank := as.numeric(gsub("Rank_", "", Rank))]
+
+# Count occurrences of each feature per rank
+rf_rank_counts <- rf_long[, .N, by = .(Rank, Feature)] %>%
+  dcast(Feature ~ Rank, value.var = "N", fill = 0)
+
+# ✅ Rename columns to simple numeric format (1, 2, 3, ..., 12)
+setnames(rf_rank_counts, old = names(rf_rank_counts)[-1], new = as.character(seq_along(names(rf_rank_counts)[-1])))
+
+# Convert to long format and sort
+rf_rank_list <- melt(rf_rank_counts, id.vars = "Feature", variable.name = "Rank", value.name = "Count") %>%
+  mutate(Rank = as.numeric(Rank)) %>%
+  filter(Count > 0) %>%
+  arrange(Rank, desc(Count))
+
+# Split data into sub-tables (10 rows each)
+rf_sub_tables <- split(rf_rank_list, ceiling(seq_len(nrow(rf_rank_list)) / 10))
+
+# Create Flextable list
+rf_flextable_list <- lapply(seq_along(rf_sub_tables), function(i) {
+  flextable(rf_sub_tables[[i]]) %>%
+    theme_vanilla() %>%
+    autofit() %>%
+    set_caption(paste0("Random Forest: Ranked Feature Importance (Part ", i, " of ", length(rf_sub_tables), ")"))
+})
+
+# Display all tables
+rf_flextable_list
+
+
+
+library(webshot)
+
+# Ensure webshot is installed and initialized (only run once)
+webshot::install_phantomjs()
+
+# Function to save flextables as PNG
+save_flextable_as_image <- function(ft, filename) {
+  temp_file <- tempfile(fileext = ".png")
+  save_as_image(ft, path = temp_file)
+  file.rename(temp_file, filename)
+}
+
+# Save XGBoost tables
+save_flextable_as_image(xgb_flextable_list[[1]], here("Results","Tables","xgb_table_1.png"))
+save_flextable_as_image(xgb_flextable_list[[2]], here("Results","Tables","xgb_table_2.png"))
+
+# Save Random Forest tables
+save_flextable_as_image(rf_flextable_list[[1]], here("Results","Tables","rf_table_1.png"))
+save_flextable_as_image(rf_flextable_list[[2]], here("Results","Tables","rf_table_2.png"))
 
 
 
@@ -573,139 +542,46 @@ cat("Number of elements in combined cf_model_list:", length(combined_cf_model_li
 
 
 
-
-
-
 ```{r estimate eonr of field i , cache = T, results = "hide"}
 
+field_reg_vars <- c("elev", "slope", "aspect", "clay", 
+                 "sand", "silt", "water_storage", "prcp_t", "gdd_t", "edd_t")
 
-  # Ensure relevant columns are present
-  relevant_columns <- c("yield", "n_rate", "elev", "slope","aspect","tpi", "clay", 
-                        "sand", "silt", "water_storage","prcp_t","gdd_t" )
-
-  # Make formula for gam regression with direct OFPE data for field i
-   formula_gam<- paste0(
+ # Make formula for gam regression with direct OFPE data for field i
+   formula_gam <- paste0(
     "yield ~ s(n_rate, k = 3) ", 
     paste0(" + ", paste0(field_reg_vars, collapse = " + "))
   ) %>% formula()
 
 
- dat_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "dat_binded.rds"))
- info_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "info_binded.rds"))
-
- xgb_model_list <- readRDS(here("Data","Processed","Analysis_results","xgb_model_list.rds"))
- xgb_pred_list <- readRDS(here("Data","Processed","Analysis_results","xgb_preds_list.rds"))
-
-
-#### Let's try to grasp the specialty of the dat_binded data
-# how I can utilize the yield_time, s_time, n_time 
-
-
-# Create the histogram of n_rate by 10
-ggplot(dat_binded, aes(x = n_rate)) +
-  geom_histogram(binwidth = 10, color = "black", fill = "lightblue") +
-  labs(title = "Histogram of Nitrogen Rate (n_rate)",
-       x = "Nitrogen Rate (n_rate)",
-       y = "Frequency") +
-  theme_minimal() +
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
-
-
-# Step 1: Calculate min and max n_rate for each ffy_id and check the condition
-ffy_id_condition_met <- dat_binded %>%
-  group_by(ffy_id) %>%
-  summarize(
-    min_n_rate = min(n_rate),
-    max_n_rate = max(n_rate),
-    satisfies_condition = min_n_rate <= 175 & max_n_rate >= 225
-  ) %>%
-  filter(satisfies_condition == TRUE)
-
-# Step 2: Get the ffy_id that satisfy the condition
-ffy_ids_to_keep <- ffy_id_condition_met$ffy_id
-
-# Step 3: Filter dat_binded to keep only the rows with ffy_id that satisfy the condition
-dat_scaled <- dat_binded %>%
-  filter(ffy_id %in% ffy_ids_to_keep) %>%
-  filter(n_rate >= 175 &  n_rate <= 225) %>%
-  filter(yield  >100 & yield < 300)
- 
-hist(dat_scaled$n_rate)
-length(unique(dat_scaled$ffy_id))
-dim(dat_scaled)
-
-
-
-
-
-# Placeholder list for variable importance rankings
-var_importance_list <- list()
-
-# Iterate through the list of XGBoost models
-for (i in seq_along(xgb_model_list)) {
-  # Extract variable importance
-  var_importance <- xgb.importance(model = xgb_model_list[[i]])
-  
-  # Rank variables based on "Gain"
-  ranked_vars <- var_importance %>%
-    arrange(desc(Gain)) %>%
-    pull(Feature)  # Extract only the variable names in ranked order
-  
-  # Store the ranked variables with field name
-  var_importance_list[[i]] <- data.frame(Field = paste0("Field", i), t(ranked_vars))
-}
-
-# Combine all field-level rankings into a single data frame
-ranked_table <- bind_rows(var_importance_list)
-
-# Set field names as row names
-row.names(ranked_table) <- ranked_table$Field
-ranked_table <- ranked_table[, -1]  # Remove the Field column from the data frame
-
-# View the final table
-print(ranked_table)
-
-library(flextable)
-var_imp_tab <-ranked_table %>% flextable()
-
-
-
-rf_model_list <- readRDS(here("Data", "Processed","Analysis_results","rf_model_list_nov18.rds"))
-rf_pred_list <- readRDS(here("Data", "Processed", "Analysis_results","rf_pred_list_nov18.rds"))
-
-cf_model_list <- readRDS(here("Data", "Processed","Analysis_results","cf_model_list.rds"))
-cf_pred_list <- readRDS(here("Data", "Processed", "Analysis_results","cf_pred_list.rds"))
-
-
 
 result_tab_list <- list()
 
-for(i in 1:length(ffy_merged_dat)){
+for(i in 1:length(base_ffy)){
  
-test_data <- dat_binded[ffy_id == ffy_merged_dat[i],]
-test_data <-  na.omit(test_data[, ..relevant_columns])
+test_data <- dat_nozero[ffy_id == base_ffy[i],]
+test_data <-  na.omit(test_data)
 
 # Skip iteration if test_data is empty
   if (nrow(test_data) == 0) {
-    warning(paste("No data for ffy_id:", ffy_merged_dat[i]))
+    warning(paste("No data for ffy_id:", base_ffy[i]))
     next
   }
   
   # Check if predictions are valid for xgb and rf
   if (is.null(xgb_pred_list[[i]]) || anyNA(xgb_pred_list[[i]])) {
-    warning(paste("Invalid or missing predictions for XGB at ffy_id:", ffy_merged_dat[i]))
+    warning(paste("Invalid or missing predictions for XGB at ffy_id:", base_ffy[i]))
     next
   }
   if (is.null(rf_pred_list[[i]]) || anyNA(rf_pred_list[[i]])) {
-    warning(paste("Invalid or missing predictions for RF at ffy_id:", ffy_merged_dat[i]))
+    warning(paste("Invalid or missing predictions for RF at ffy_id:", base_ffy[i]))
     next
   }
 
   
-  
-  xgb_gam_data <- test_data%>% mutate(yield = xgb_pred_list[[i]])
-  rf_gam_data <-  test_data%>% mutate(yield = rf_pred_list[[i]])
-  cf_gam_data <-  test_data%>% mutate(yield = cf_pred_list[[i]])
+  xgb_gam_data <- test_data %>% mutate(yield = xgb_pred_list[[i]])
+  rf_gam_data <-  test_data %>% mutate(yield = rf_pred_list[[i]])
+  cf_gam_data <-  test_data %>% mutate(yield = cf_pred_list[[i]])
   
   
   gam_ofpe <- gam(formula_gam, data = test_data)
@@ -764,7 +640,7 @@ eonr_tab <- price_tab %>% data.table %>%
 
 # Create the result tibble
 result_dat_tab <- tibble(
-  ffy_id = ffy_id_dat[i],   # Store ffy_id_dat[i] as a regular column
+  ffy_id = base_ffy[i],   # Store ffy_id_dat[i] as a regular column
   eval_comb = list(eval_comb),    # Store eval_comb as a list-column
   eonr_tab = list(eonr_tab)      # Store eonr_tab as a list-column
 )

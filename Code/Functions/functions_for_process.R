@@ -367,3 +367,6 @@ get_non_exp_data <- function(ffy_id) {
 
   return(list(topo_dem = topo_dem, ssurgo = ssurgo))  # Return both datasets as a list
 }
+
+
+

@@ -1,0 +1,293 @@
+---
+title: "2.1 Data_anlaysis_tmp"
+author: "Jaeseok Hwang"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: defaulta
+---
+
+
+
+
+## Knitr option
+
+```{r, cache = F, echo = F, results = "hide"}
+#####
+
+library(knitr)
+
+knitr::opts_chunk$set(
+  cache = FALSE,
+  echo = FALSE,
+  warning = FALSE,
+  cache.lazy = FALSE,
+  fig.retina = 6,
+  fig.height = 9,
+  fig.width = 9,
+  message = FALSE,
+  error = TRUE
+)
+
+options(knitr.duplicate.label = "allow")
+
+```
+
+
+#### Packages 
+
+```{r pacakages, cache = FALSE, results = "hide"}
+
+library(here)
+library(rmarkdown) # for rmarkdown options
+library(jsonlite) # for json data loading and processing
+library(parallel) # for parallel processing (computing)
+library(bookdown) # for bookdown options
+library(knitr) # for knitr options
+library(stringr) # for string manipulation
+
+library(measurements) # for unit conversion
+library(data.table) # for data manipulation
+library(tidyverse) # for data manipulation
+library(dplyr) # for data manipulation
+
+library(tmap) # for mapping
+library(ggplot2) # for plotting
+
+library(sf) # for spatial data
+library(stars) # some raster data needs to be stacked in stars format
+library(raster) # for raster data
+library(exactextractr) # to extract the raster data from stacked star
+
+library(terra) # to calculate the topographic variables
+library(spatialEco) # to calculate the topographic variables
+library(elevatr) # for the dem data ( digital eleveation model)
+library(soilDB) # for soil survey data ( SSURGO)
+library(FedData) # for soil survey data ( SSURGO)
+library(daymetr) # for daymet data ( weather info)
+
+###################
+# Load necessary libraries
+
+library(future)
+library(future.apply)
+
+library(mlr3verse)
+library(mlr3)
+library(mlr3learners)
+
+library(xgboost)
+library(ranger)
+library(randomForest)
+library(grf)
+library(caret)
+library(dplyr)
+library(mgcv)
+library(R6)
+
+
+
+```
+
+# Read sources and load processed data
+
+```{r source, echo = F, results = "hide"}
+
+# Read functions for data processing 
+source(here("Code","Main","0_Set_up_preparation.R"))
+source(here("Code","Functions","functions_for_analysis.R"))
+
+```
+
+
+
+
+# Given the nature of Combind data
+# where yield response to nitrogen rate (n_rate) is influenced by 
+# field-specific characteristics and interactions with weather variables (gdd_t, edd_t, prcp_t)
+
+### challenges that is facing related to: ###
+
+# 1.Field Fixed Effects: Each field has unknown factors affecting yield response, 
+#     (making it difficult to generalize across fields)
+
+# 2. Unbalanced Distribution of n_rate Values: 
+#  ( The nitrogen rates are not evenly distributed,
+#   making it hard to estimate yield response in some ranges) 
+
+# 3. Limited Soil and Topography Information:
+#  The field-level data quality is relatively low.
+
+
+# New Approach 
+
+# #######
+# Step1.  Train a Field-Specific Model (Meta-Learning Approach)
+
+# Use Generalized Additive Models (GAM) 
+# or Bayesian Hierarchical Models to model
+#  within-field yield response to n_rate 
+
+# Extract the field-specific response functions. 
+
+# #########
+# Step2. Train a Meta-Model to Predict Field-Specific Yield Responses
+
+# Use Gradient Boosting Models (XGBoost/CatBoost/Random Forests)
+#  to predict yield responses at the field level using the field’s 
+# limited soil/topography/weather information.
+
+# This model learns how different field conditions affect the yield response function.
+
+# #########
+# Step3. Apply the Model to a New Field
+# Given the new field’s soil/topography/weather, predict its yield response function.
+
+# Predict yield across a range of n_rate values.
+
+```{r Train field-specific yield response model, cache = T, results = "hide"}
+ 
+# Read data
+
+ n_table <- readRDS(here("Data", "Processed", "Analysis_ready","n_table_anony.RDS"))
+dat_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "dat_binded.rds"))
+info_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "info_binded.rds"))
+
+
+gam_models <- dat_nozero %>%
+  group_by(ffy_id) %>%
+  group_split() %>%
+  lapply(function(df) {
+    gam(yield ~ s(n_rate, k = 4) , data = df, method = "REML")
+  })
+
+gam_models_s <- dat_nozero_s %>%
+  group_by(ffy_id) %>%
+  group_split() %>%
+  lapply(function(df) {
+    gam(yield ~ s(n_rate, k = 4) + s(s_rate, k = 4) , data = df, method = "REML")
+  })
+
+# Store field-level response functions
+
+field_response <- tibble(
+  ffy_id = unique(dat_nozero$ffy_id),
+  gam_model = gam_models
+)
+
+field_response_s <- tibble(
+  ffy_id = unique(dat_nozero_s$ffy_id),
+  gam_model = gam_models_s
+)
+
+```
+
+# Step 2: Extract Field-Level Parameters 
+
+# To generalize across fields,
+#  extract meaningful parameters (e.g., coefficients, smooth function characteristics).
+
+```{r Extract Field-Level Parameters , cache = T, results = "hide"}
+ 
+extract_field_params <- function(gam_model) {
+  coefs <- coef(gam_model)
+  edf <- sum(gam_model$edf)  # Effective degrees of freedom (model flexibility)
+  return(data.frame(edf = edf, coef_mean = mean(coefs), coef_sd = sd(coefs)))
+}
+
+field_params <- field_response %>%
+  rowwise() %>%
+  mutate(params = list(extract_field_params(gam_model))) %>%
+  tidyr::unnest(cols = c(params))
+
+field_params_s <- field_response_s %>%
+  rowwise() %>%
+  mutate(params = list(extract_field_params(gam_model))) %>%
+  tidyr::unnest(cols = c(params))
+
+```
+
+# Step 3: Train a Meta-Model to Predict Field-Specific Response
+
+# Use XGBoost or Random Forest to predict the field’s yield response function
+#  based on soil/topography/weather.
+
+
+```{r Train a meta-model to predict field-specific response , cache = T, results = "hide"}
+ 
+leave_one_out_prediction <- function(test_ffy_id, meta_data) {
+  # Split into training and test data
+  train_data <- meta_data %>% filter(ffy_id != test_ffy_id)
+  test_data <- meta_data %>% filter(ffy_id == test_ffy_id)
+
+  # Ensure only numeric columns are used
+  numeric_cols <- meta_data %>% dplyr::select(-ffy_id) %>% dplyr::select(where(is.numeric)) %>% colnames()
+
+  # Convert training and test data to numeric matrix format
+  train_matrix <- xgb.DMatrix(data = as.matrix(train_data %>% dplyr::select(all_of(numeric_cols))), 
+                              label = train_data$edf)
+  test_matrix <- xgb.DMatrix(data = as.matrix(test_data %>% dplyr::select(all_of(numeric_cols))), 
+                             label = test_data$edf)
+
+  # Train XGBoost model
+  xgb_model <- xgboost(
+    data = train_matrix,
+    max_depth = 4,
+    eta = 0.1,
+    nrounds = 100,
+    objective = "reg:squarederror",
+    verbose = 0
+  )
+
+  # Predict on the left-out field
+  test_preds <- predict(xgb_model, test_matrix)
+
+  # Return predictions with field ID
+  return(data.frame(ffy_id = test_ffy_id, predicted_edf = test_preds))
+}
+
+```
+
+#  Step 4: Run Leave-One-Field-Out for All Fields
+# iterate over all fields in the dataset:
+
+```{r Run Leave-One-Field-Out for All Fields  , cache = T, results = "hide"}
+ 
+# Get unique ffy_id values
+unique_ffy_ids <- unique(meta_data$ffy_id)
+
+# Apply leave-one-out function for all ffy_ids
+loo_results <- map_dfr(unique_ffy_ids, ~ leave_one_out_prediction(.x, meta_data))
+
+# Merge predictions with true values for evaluation
+final_results <- meta_data %>%
+  dplyr::select(ffy_id, edf) %>%
+  left_join(loo_results, by = "ffy_id")
+
+# Check model performance
+cor(final_results$edf, final_results$predicted_edf)  # Correlation between true and predicted
+
+
+```
+
+# Step 5: Predict Yield for the Left-Out Field
+# Now that we have predicted edf for the left-out field, 
+# we use it to create a new yield response function:
+
+```{r Predict Yield for the Left-Out Field  , cache = T, results = "hide"}
+ 
+# Example: Predict yield response for a specific left-out field
+test_ffy_id <- unique_ffy_ids[1]  # Choose one field for visualization
+
+# Get the predicted response characteristics
+predicted_edf <- final_results %>% filter(ffy_id == test_ffy_id) %>% pull(predicted_edf)
+
+# Generate a new GAM model using predicted edf
+new_gam <- gam(yield ~ s(n_rate, k = round(predicted_edf)), data = dat_nozero, method = "REML")
+
+# Plot predicted yield response curve for the left-out field
+plot(new_gam, pages = 1, shade = TRUE)
+
+
+```

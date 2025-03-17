@@ -79,6 +79,17 @@ field_data <- jsonlite::fromJSON(
 )%>%
   data.table() 
 
+conv_table <- jsonlite::fromJSON(
+ file.path(
+    here("Data", "Raw"),
+    "nitrogen_conversion.json"
+  ),
+  flatten = TRUE
+)%>%
+  data.table() 
+
+
+
 
 # Read functions for data processing 
 source(here("Code","Main","0_Set_up_preparation.R"))
@@ -195,14 +206,14 @@ date_info <- date_info_raw %>% filter(ffy_id %in% ffy_id_dat   )  %>%
                 rename(ffy_id_in = ffy_id)
 
 
-date_info_png  <- date_info %>% 
-  flextable() %>%
-  width(j = 2:4, width = 2.5) %>%    # Adjust column width for columns 2 to 4
-  width(j = 1, width = 1.5) %>%     # Adjust width for column 1
-  autofit() %>%
-  set_caption("Sample Flextable with Adjusted Width")
+# date_info_png  <- date_info %>% 
+#   flextable() %>%
+#   width(j = 2:4, width = 2.5) %>%    # Adjust column width for columns 2 to 4
+#   width(j = 1, width = 1.5) %>%     # Adjust width for column 1
+#   autofit() %>%
+#   set_caption("Sample Flextable with Adjusted Width")
 
-save_as_image(date_info_png, path = here("Data","Processed","date_info.png"))
+# save_as_image(date_info_png, path = here("Data","Processed","date_info.png"))
 
 
 for(i in 1:length(ffy_id_dat )){
@@ -237,4 +248,69 @@ weather_info <- weather_input_info  <- NULL
   saveRDS(weather_input_info, here("Data", "Processed", "Analysis_ready", paste0(ffy_id, "_weather_info.rds")))
 }
 
+
+
 ```
+
+```{r data sort for combined analysis, cache = T, results = "hide"}
+  
+### Check all the field_year list (ffy) in the processed data(Analysis_Ready) folder
+
+ffy_merged_dat <- list.files(here("Data","Processed","Analysis_ready")) %>%
+ str_subset("_merged_data.rds") %>%
+   str_remove("_merged_data.rds")
+
+
+ffy_weather_info <- list.files(here("Data","Processed","Analysis_ready")) %>%
+ str_subset("_weather_info.rds") %>%
+   str_remove("_weather_info.rds")
+
+ffy_id_dat <-readRDS(here("Data","Processed","ffy_id_list.rds"))
+
+
+match(ffy_merged_dat, ffy_weather_info)
+match(ffy_merged_dat, ffy_id_dat)
+
+```
+
+
+```{r merge experiment data and weather info , cache = T, results = "hide"}
+
+# Combine merged data and weather info data
+info_tb_list <- list()
+dat_tb_list <- list()
+
+for(i in 1:length(ffy_merged_dat)) {
+  
+  ffy_id <- ffy_merged_dat[i]
+  # Read Sf data and weather info table
+  dat_sf <- readRDS(here("Data", "Processed", "Analysis_ready", paste0(ffy_id, "_merged_data.rds")))
+
+  dat_sf <- dat_sf %>% st_transform(4326)
+ # Drop geometry and convert to data.table
+  dat_tb <- dat_sf %>% st_drop_geometry() %>% as.data.table()
+  
+  dat_tb$ffy_id <- ffy_id
+
+  dat_tb[, c("farm", "field", "year") := tstrsplit(ffy_id, "_", type.convert = TRUE)]
+
+  info_tb <- readRDS(here("Data", "Processed", "Analysis_ready", paste0(ffy_id, "_weather_info.rds")))
+ 
+  dat_tb[, c("prcp_t", "gdd_t","edd_t","gdd_stg","edd_stg","gdd_stg_n","edd_stg_n","y_time","n_time","s_time") 
+        := .(info_tb$prcp_t, info_tb$gdd_t,info_tb$edd_t,info_tb$stage_gdd_t, info_tb$stage_edd_t,
+          info_tb$stage_gdd_nitrogen,info_tb$stage_edd_nitrogen,info_tb$yield_time,info_tb$n_time,info_tb$s_time)]
+ 
+  dat_tb_list[[i]] <- dat_tb
+  info_tb_list[[i]] <- info_tb
+}
+
+  dat_bind <-bind_rows(dat_tb_list)
+  info_bind <- bind_rows(info_tb_list)
+
+   saveRDS(dat_bind,here("Data", "Processed", "Analysis_ready", "dat_binded.rds"))
+    saveRDS(info_bind,here("Data", "Processed", "Analysis_ready", "info_binded.rds"))
+
+
+```
+
+

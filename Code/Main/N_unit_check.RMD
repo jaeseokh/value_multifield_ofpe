@@ -1,0 +1,448 @@
+---
+title: "N_unit_check"
+author: "Jaeseok Hwang"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: defaulta
+---
+
+## Knitr option
+
+```{r, cache = F, echo = F, results = "hide"}
+#####
+
+library(knitr)
+library(here)
+library(ggplot2)
+
+knitr::opts_chunk$set(
+  cache = FALSE,
+  echo = FALSE,
+  warning = FALSE,
+  cache.lazy = FALSE,
+  fig.retina = 6,
+  fig.height = 9,
+  fig.width = 9,
+  message = FALSE,
+  error = TRUE
+)
+
+options(knitr.duplicate.label = "allow")
+
+```
+
+# Preparation
+
+```{r preparations, cache = T, results = "hide"}
+source(here("Code","Main","0_Set_up_preparation.R"))
+source(here("Code","Functions","functions_for_process.R"))
+
+
+grower_path <- "/Users/jaeseokhwang/Library/CloudStorage/Box-Box/DIFM_HQ/Data/Growers/"
+
+# Read the field parameter data (private data, make name to be anynomous) 
+field_data_raw <- jsonlite::fromJSON(
+ file.path(
+    here("Data", "Private",
+    "field_parameter_private.json")
+  ),
+  flatten = TRUE
+) %>%
+ data.table() %>%
+  .[, field_year := paste(farm, field, year, sep = "_")]
+
+
+field_data_ffy <- jsonlite::fromJSON(
+ file.path(
+    here("Data", "Raw",
+    "field_parameter.json")
+  ),
+  flatten = TRUE
+) %>%
+ data.table() %>%
+  .[, field_year := paste(farm, field, year, sep = "_")]
+
+
+
+# Read the processed data
+dat_binded <-readRDS(here("Data", "Processed", "Analysis_ready", "dat_binded.rds"))
+
+# Read the field and weather information
+info_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "info_binded.rds"))
+
+# private field ffy and ffy_id 
+ffy_name_conv_list <- readRDS(here("Data","Private","ffy_name_conv_list.rds" ))
+
+
+field_raw_list <-field_data_raw %>% filter(field_year %in% ffy_name_conv_list$exp_tb_list)
+
+```
+
+
+
+```{r check the grower's chosen rate and unit matches , cache = T, results = "hide"}
+
+process_input <- function(field_row, input_name) {
+  # Extract the nested data frame safely
+  input_list <- field_row[[input_name]]
+  
+  # Check if input_list exists and has valid data
+  if (!is.null(input_list) && length(input_list) > 0) {
+   
+    input_data <- input_list[[1]]  # Access the data frame within the list
+   
+    if (is.data.frame(input_data) && nrow(input_data) > 0) {
+     data.frame(
+        farm = field_row$farm,
+        field = field_row$field,
+        year = field_row$year,
+        crop_unit = field_row$crop_unit,
+        land_unit = field_row$land_unit,
+        reporting_unit = field_row$reporting_unit,
+        input_name = input_name,
+        form = ifelse("form" %in% names(input_data), input_data$form, NA),
+        unit = ifelse("unit" %in% names(input_data), input_data$unit, NA),
+        min_rate = ifelse("min_rate" %in% names(input_data), input_data$min_rate, NA),
+        max_rate = ifelse("max_rate" %in% names(input_data), input_data$max_rate, NA),
+        sq_rate = ifelse("sq_rate" %in% names(input_data), input_data$sq_rate, NA),
+        gc_rate = ifelse("rate" %in% names(input_data), input_data$rate, NA),
+        stringsAsFactors = FALSE
+      )
+    }
+  } else{
+  # Return an empty data frame if no valid input data
+   data.frame(
+    farm = NA, field = NA, year = NA, crop_unit = NA, land_unit= NA, reporting_unit =NA,
+    input_name = input_name,
+    form = NA, unit = NA, min_rate = NA, max_rate = NA, sq_rate = NA, gc_rate = NA,
+    stringsAsFactors = FALSE
+  )
+  }
+}
+  
+# Function to process all rows in the field_data
+process_all_inputs <- function(data) {
+ 
+  result_list <- lapply(1:nrow(data), function(i) {
+    field_row <- data[i, ]
+    input1_info <- process_input(field_row, "input.1")
+    input2_info <- process_input(field_row, "input.2")
+    input3_info <- process_input(field_row, "input.3")
+    
+    # Combine the three inputs for the current row
+    do.call(rbind, list(input1_info, input2_info, input3_info))
+  })
+  
+  # Combine all non-null results into a single data frame
+  do.call(rbind, Filter(Negate(is.null), result_list))
+}
+
+
+
+# Run the processing function
+input_summary <- process_all_inputs(field_data_ffy)
+
+# Filter out rows where form is 'seed' and remove the input_name column
+input_summary <- input_summary %>%data.table() %>%.[form != "seed", !"input_name"]
+
+# Add a logical column to check the condition
+input_summary[, check := (is.na(sq_rate) & !is.na(gc_rate) & is.numeric(gc_rate)) | 
+                          (is.na(gc_rate) & !is.na(sq_rate) & is.numeric(sq_rate))]
+
+invalid_rows <- input_summary[check == FALSE]
+
+input_summary[, sqsr := fifelse(is.na(sq_rate), 0, sq_rate) + 
+                           fifelse(is.na(gc_rate), 0, gc_rate)]
+
+input_summary[, c("check", "sq_rate", "gc_rate") := NULL]
+
+# Create 'ffy' variable
+input_summary[, ffy_id := paste(farm, field, year, sep = "_")]
+
+
+# Collapse rows by 'ffy' and handle different units
+field_summary <- input_summary[
+  , .(
+    crop_unit = first(crop_unit),  # Assuming crop_unit is constant within ffy
+    land_unit = first(land_unit),  # Assuming land_unit is constant within ffy
+    reporting_unit = first(reporting_unit),  # Assuming reporting_unit is constant within ffy
+    form = first(form[form != "N_equiv"]),  # Take the first non-"N_equiv" form
+    unit = first(unit[form != "N_equiv"]),  # Take the unit for the non-"N_equiv" form
+    min_rate = first(min_rate),
+    max_rate = first(max_rate),
+    sqsr = first(sqsr[form != "N_equiv"]),  # Take the sqsr for the non-"N_equiv" form
+    n_base = first(sqsr[form == "N_equiv"]) # Take the sqsr as n_equiv for "N_equiv"
+  ),
+  by = .(ffy_id)
+]
+
+
+conv_table <- jsonlite::fromJSON(
+ file.path(
+    here("Data", "Raw"),
+    "nitrogen_conversion.json"
+  ),
+  flatten = TRUE
+)%>%
+  data.table() 
+
+
+# Perform the join to add 'conv_factor' to collapsed_summary
+
+field_table <- merge(
+  field_summary,
+  conv_table,
+  by.x = c("form", "unit"), 
+  by.y = c("type", "unit"),
+  all.x = TRUE  # Keep all rows in collapsed_summary
+)
+
+# Replace NA in n_base with 0
+field_table[, N_base := fifelse(is.na(n_base), 0, n_base)]
+
+# Calculate n_total
+field_table[, N_gc := round( N_base + sqsr * as.numeric(conv_factor),1)]
+
+
+
+# save field_table as RDS file and anonymize the name in 
+# Anonymize_Naming.RMD 
+field_table_raw <- readRDS(here("Data", "Private", "field_table.RDS"))
+
+field_table_ffy <-readRDS(here("Data", "Processed", "field_table_ffy.RDS"))
+
+
+
+# Filter collapsed_table to keep only rows where ffy matches ffy_id in dat_binded
+field_table_binded <- field_table_ffy[ffy_id %in% unique(dat_binded$ffy_id)]
+
+
+# Step 1: Calculate n_min, n_max, and n_med in dat_binded grouped by ffy_id
+binded_dat_summary <- dat_binded[, .(
+  N_min = round(min(n_rate, na.rm = TRUE),1),  # Minimum value
+  N_max = round(max(n_rate, na.rm = TRUE),1),  # Maximum value
+  N_med = round(median(n_rate, na.rm = TRUE),1),  # Median value
+  Y_min = round(min(yield, na.rm = TRUE),1),  # Minimum value
+  Y_max = round(max(yield, na.rm = TRUE),1),  # Maximum value
+  Y_med = round(median(yield, na.rm = TRUE),1)  # Median value
+), by = ffy_id]
+
+
+setkey(binded_dat_summary, ffy_id)
+setkey(info_binded, ffy_id)
+
+match(binded_dat_summary$ffy_id,info_binded$ffy_id)
+
+# setp2 : merge the summary of processed data and weather and date info. 
+# Merge the data tables on 'ffy_id'
+dat_weather_summary <- binded_dat_summary[info_binded, 
+  on = "ffy_id", 
+  .(ffy_id,
+    N_min, N_max, N_med,
+    Y_min, Y_max, Y_med,
+    prcp_t, gdd_t, edd_t, stage_gdd_t, stage_edd_t, 
+    stage_gdd_nitrogen, stage_edd_nitrogen, 
+    s_time, n_time, yield_time)
+]
+
+# Step 3: Merge aggregated_summary with collapsed_table
+all_info_tab <- merge(
+  field_table_binded,
+  dat_weather_summary,
+  by.x = "ffy_id",          # Match ffy in collapsed_table
+  by.y = "ffy_id",       # Match ffy_id in dat_binded
+  all.x = TRUE           # Keep all rows in collapsed_table
+)
+
+
+
+all_info_tab <- merge(
+  all_info_tab,
+  ffy_name_conv_list,
+  by.x = "ffy_id",
+  by.y = "ffy_id_list",
+  all.x = TRUE  # Keep all rows in collapsed_table
+)
+
+# Rename the column exp_tb_list to exp_tb
+setnames(all_info_tab, "exp_tb_list", "exp_tb")
+
+
+library(flextable)
+library(officer)
+
+n_table <- all_info_tab %>%.[, .(exp_tb,ffy_id, N_base, N_gc, N_med, Y_med,prcp_t,gdd_t,edd_t,s_time,n_time,yield_time, land_unit, reporting_unit)]
+
+n_table[, `:=`(
+  s_time = format(s_time, "%y%m%d"),
+  n_time = format(n_time, "%y%m%d"),
+  yield_time = format(yield_time, "%y%m%d")
+)]
+
+
+saveRDS(n_table, here("Data","Private","n_table_collapsed.RDS"))
+
+
+n_table <- readRDS(here("Data","Private","n_table_collapsed.RDS"))
+
+length(which(n_table$N_base!=0))
+
+n_table_ft <- n_table %>%
+        flextable() %>%
+       autofit()
+
+save_as_image(n_table_ft, path = here("Data","Private","field_info_table.png"))
+
+hist(n_table$N_med, breaks = 10, main = "Histogram of N_med", xlab = "N_med", ylab = "Frequency", col = "lightblue")
+
+
+
+
+```
+
+
+```{r simple analysis with advanced field info  , cache = T, results = "hide"}
+
+n_table <- readRDS(here("Data","Private","n_table_collapsed.RDS"))
+
+n_table[, n_base_bi := ifelse(N_base == 0, 0, 1)]
+
+# Split ffy_id into farm, field, and year
+n_table[, c("farm", "field", "year") := tstrsplit(ffy_id, "_", type.convert = TRUE)]
+
+
+
+# 1. median yield by median N ( zero N_base and non-zero N_base)
+
+
+ggplot(n_table, aes(x = N_med, y = Y_med, color = factor(n_base_bi))) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE) +
+  scale_color_manual(
+    values = c("0" = "red", "1" = "blue"),
+    name = "N_base",
+    labels = c("0" = "Zero", "1" = "Non-zero")
+  ) +
+  labs(
+    title = "Response of Y_med to N_med by N_base_bi",
+    x = "N_med (Median Nitrogen Fertilizer)",
+    y = "Y_med (Median Yield)"
+  )
+
+#2.  Run the simple regression
+reg_lin <- lm(Y_med ~ N_med + prcp_t + gdd_t + edd_t, data = n_table)
+
+# Summarize the regression results
+summary(reg_lin )
+
+# Linear regression with interactions
+reg_lin_int <- lm(Y_med ~ N_med * (prcp_t + gdd_t + edd_t), data = n_table)
+summary(reg_lin_int)
+
+# GAM with smooth terms for interactions
+library(mgcv)
+
+reg_gam <- gam(Y_med ~ s(N_med, by = prcp_t) + s(N_med, by = gdd_t) + s(N_med, by = edd_t), data = n_table)
+
+summary(reg_gam)
+
+library(randomForest)
+
+# Random forest regression
+reg_rf <- randomForest(Y_med ~ N_med + prcp_t + gdd_t + edd_t + 
+                          N_med:prcp_t + N_med:gdd_t + N_med:edd_t, 
+                        data = n_table, importance = TRUE, ntree = 500)
+
+# Importance of predictors
+importance(reg_rf)
+
+
+
+library(lme4)
+# Standardize continuous predictors
+
+n_table[, `:=`(
+  N_med_scaled = scale(N_med),
+  prcp_t_scaled = scale(prcp_t),
+  gdd_t_scaled = scale(gdd_t),
+  edd_t_scaled = scale(edd_t),
+  ffy_fac = as.factor(ffy_id)
+)]
+
+
+# Fit the mixed-effects model
+yield_model_mixed <- lmer(
+  Y_med ~ N_med_scaled + I(N_med_scaled^2)  + prcp_t_scaled +
+    gdd_t_scaled + edd_t_scaled + N_med_scaled:prcp_t_scaled + (1|ffy_id),
+  data = n_table
+)
+
+# Summary of the model
+summary(yield_model_mixed)
+
+
+
+### Think why the prcp_t is not a significant variables 
+
+
+ggplot(n_table, aes(x = prcp_t, y = Y_med, color = as.factor(n_base_bi))) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = F) +
+  scale_color_manual(
+    values = c("0" = "red", "1" = "blue"),
+    name = "N_base",
+    labels = c("0" = "Zero", "1" = "Non-zero")
+  ) +
+  labs(
+    title = "Response of Y_med to prcp_t ",
+    x = "prcp_t (In-Season Total Precipitation)",
+    y = "Y_med (Median Yield)"
+  )
+
+
+# Divide prcp_t into quantiles for faceting
+n_table[, prcp_group := cut(prcp_t, breaks = quantile(prcp_t, probs = seq(0, 1, 0.2)), include.lowest = TRUE)]
+
+# Faceted plot of Y_med vs. N_med by prcp_t quantiles
+ggplot(n_table, aes(x = N_med, y = Y_med)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  facet_wrap(~prcp_group, scales = "fixed") +
+  labs(
+    title = "Effect of N_med on Y_med Across prcp_t Levels",
+    x = "N_med (Median Nitrogen Fertilizer)",
+    y = "Y_med (Median Yield)"
+  ) 
+
+
+library(ggridges)
+
+# Ridge plot and facets together
+ggplot(n_table, aes(x = N_med, y = Y_med, color = as.factor(year))) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~prcp_group) +
+  scale_color_viridis_d() +
+  labs(
+    title = "Y_med vs N_med by prcp_t Levels and Year",
+    x = "N_med (Median Nitrogen Fertilizer)",
+    y = "Y_med (Median Yield)",
+    color = "Year"
+  )
+
+
+```
+
+# Looking into n_table_ft which fields has inappropriate n_rate
+  - 12_1_2023 (N_med 42.2, Y_med 50.1)
+  - 1_3_2023  (N_med 49,0 , Y_med 193.8)
+  - 21_1_2022
+  - 33_2_2022
+  - 33_1_2023
+  - 37_1_2023
+  - 38_1_2022
+
+
+
