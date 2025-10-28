@@ -1,0 +1,43 @@
+project:
+  type: website
+  output-dir: docs
+
+website:
+  title: "Jaeseok Hwang"
+  site-url: https://jaeseokh.github.io/
+  navbar:
+    right:
+      - text: Projects
+        menu:
+          - text: Add Value to Limited Data
+            href: projects/limited-data.qmd
+          - text: Input Choices under Risk
+            href: projects/risk-choices.qmd
+          - text: Static to Dyanmic Information
+            href: projects/static-dynamic.qmd
+      - text: StudyNotes
+        menu:
+          - text: Bayesian
+            href: studynote/bayesian.qmd
+          - text: Statistical Learning
+            href: studynote/statistical_learning.qmd
+          - text: Risk-Analysis
+            href: studynote/risk_analysis.qmd
+      - text: Papers
+        href: research/working_papers.pdf
+      - text: Resume(CV)
+        href: resume/resume_updated.pdf
+  page-footer:
+    center: 
+      © {&copy} {Oct 2025} Jaeseok Hwang · Built with Quarto
+format:
+  html:
+    theme: flatly
+    css: styles/styles.scss
+    smooth-scroll: true
+    link-external-newwindow: true
+    anchor-sections: true
+
+# Optional: enable listings for blog/posts later
+listing:
+  contents: posts
