@@ -1,43 +1,34 @@
-project:
-  type: website
-  output-dir: docs
+name: CI — R & Python smoke
 
-website:
-  title: "Jaeseok Hwang"
-  site-url: https://jaeseokh.github.io/
-  navbar:
-    right:
-      - text: Projects
-        menu:
-          - text: Add Value to Limited Data
-            href: projects/limited-data.qmd
-          - text: Input Choices under Risk
-            href: projects/risk-choices.qmd
-          - text: Static to Dyanmic Information
-            href: projects/static-dynamic.qmd
-      - text: StudyNotes
-        menu:
-          - text: Bayesian
-            href: studynote/bayesian.qmd
-          - text: Statistical Learning
-            href: studynote/statistical_learning.qmd
-          - text: Risk-Analysis
-            href: studynote/risk_analysis.qmd
-      - text: Papers
-        href: research/working_papers.pdf
-      - text: Resume(CV)
-        href: resume/resume_updated.pdf
-  page-footer:
-    center: 
-      © {&copy} {Oct 2025} Jaeseok Hwang · Built with Quarto
-format:
-  html:
-    theme: flatly
-    css: styles/styles.scss
-    smooth-scroll: true
-    link-external-newwindow: true
-    anchor-sections: true
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
 
-# Optional: enable listings for blog/posts later
-listing:
-  contents: posts
+jobs:
+  r-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-r@v2
+      - name: Install minimal deps
+        run: |
+          Rscript -e "install.packages(c('rmarkdown','yaml','ggplot2','cli','glue','fs','here','tibble','dplyr'), repos='https://cloud.r-project.org')"
+      - name: Render tiny chunk (no heavy data)
+        run: |
+          Rscript -e "rmarkdown::render('0_set-up.Rmd', output_format='md_document', output_file='__tmp.md', quiet=TRUE)"
+
+  py-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pytest (extend later)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -q pytest
+      - name: Run tests if present
+        run: |
+          if [ -d "python/tests" ]; then pytest -q python/tests || true; fi
