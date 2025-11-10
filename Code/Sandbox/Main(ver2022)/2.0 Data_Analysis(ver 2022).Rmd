@@ -1,0 +1,360 @@
+---
+title: "2.0 Data Analysis (LOLO Yield-N Prediction - v2022)"
+author: "Jaeseok Hwang"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: cosmo
+---
+
+# Purpose
+
+This script replicates the analysis workflow focused on predicting the yield-N response and Economically Optimal Nitrogen Rate (EONR) for new fields using a Leave-One-Location-Out (LOLO) cross-validation approach. It trains ensemble machine learning models (XGBoost, Random Forest) on N-1 fields and evaluates their ability to predict the optimal management for the held-out Nth field. The analysis incorporates shape-constrained GAMs (SCAM) or standard GAMs to ensure agronomic realism in the response curves used for EONR calculation.
+
+**Workflow:**
+
+1.  Load the processed OFE data (`analysis_data_list_full.rds`).
+2.  Combine data into a single table suitable for modeling.
+3.  **LOLO Cross-Validation Loop:**
+    a.  For each field (`ffy_id`), designate it as the test set and the remaining fields as the training set.
+    b.  Train XGBoost and Random Forest models on the training data (`yield ~ n_rate + ss + tp + wt`).
+    c.  Predict yields for the test field's subplots using the trained models.
+    d.  **Smooth Predicted Response:** Fit a GAM/SCAM (`predicted_yield ~ s(n_rate, bs='cv', k=4) + s(relevant_covariate)`) to the *predicted* yields of the test field to get a smooth, potentially concave curve. Calculate the **Predicted EONR** from this curve using reference prices.
+    e.  **Estimate True Response:** Fit a similar GAM/SCAM (`yield ~ s(n_rate, bs='cv', k=4) + s(relevant_covariate)`) directly to the *observed* yields of the test field to get the best estimate of its actual response curve. Calculate the **True EONR** from this curve.
+    f.  Store both predicted and true EONRs and response curve data.
+4.  **Aggregate Results:** Combine EONR results and curve data from all folds.
+5.  **Comparison:** Create tables and faceted plots comparing the Predicted vs. True yield-N response curves and EONRs.
+6.  **Economic Sensitivity Analysis:** Recalculate EONRs and profit differences under various historical corn/nitrogen price ratios using the fitted GAM/SCAM curves.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, # Show code
+  warning = FALSE,
+  message = FALSE,
+  cache = FALSE 
+)
+```
+
+# Step 1: Load Libraries and Data
+
+```{r load packages}
+# --- Load Libraries ---
+library(here)
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(purrr) # For map functions
+library(future) # For parallel processing
+library(future.apply) # For future_lapply
+library(mgcv) # For GAM models (consider 'scam' package for strict concavity)
+library(xgboost)
+library(ranger) # For Random Forest
+```
+
+
+
+```{r load data}
+# --- Load Processed Data ---
+analysis_list_path <- here("Data", "Processed", "analysis_data_list_full.rds")
+if (!file.exists(analysis_list_path)) {
+    stop("The 'analysis_data_list_full.rds' file was not found.")
+}
+analysis_list <- readRDS(analysis_list_path)
+
+# Remove any NULL elements and keep only fields with info and data
+analysis_list_complete <- analysis_list[!sapply(analysis_list, is.null)]
+analysis_list_complete <- Filter(function(x) !is.null(x$info) && !is.null(x$data), analysis_list_complete)
+print(paste("Loaded and retained", length(analysis_list_complete), "fields with complete data."))
+
+# --- Load Price Data ---
+price_tab_path <- here("Data", "Processed", "price_table.rds")
+if (!file.exists(price_tab_path)) {
+    stop("The 'price_table.rds' file was not found. Please run 0_Set_up.R")
+}
+price_tab <- readRDS(price_tab_path)
+# Use a reference price ratio for initial EONR calculation (e.g., average ratio)
+reference_price_ratio <- mean(price_tab$nitrogen / price_tab$corn, na.rm = TRUE)
+print(paste("Using reference N:Corn price ratio:", round(reference_price_ratio, 2)))
+```
+
+# Step 2: Prepare Pooled Data Table
+
+Combine the list into a single data.table, adding necessary identifiers and selecting relevant columns.
+
+```{r prepare_pooled_data}
+
+all_data_list <- lapply(names(analysis_list_complete), function(ffy_id) {
+  field_data <- copy(analysis_list_complete[[ffy_id]]$data)
+  field_info <- copy(analysis_list_complete[[ffy_id]]$info)
+
+  # Ensure optional columns exist (as numeric) so j never fails
+  needed_cols <- c("s_rate","elev","slope","clay","sand","water_storage")
+  missing_cols <- setdiff(needed_cols, names(field_data))
+  if (length(missing_cols)) {
+    for (cc in missing_cols) field_data[, (cc) := NA_real_]
+  }
+
+  # Build the subplot subset (ffy_id is a constant)
+  field_data_subset <- field_data[, .(
+    ffy_id = ffy_id,
+    yield,
+    n_rate,
+    s_rate,
+    elev, slope, clay, sand, water_storage
+    # add lon, lat later if you want
+  )]
+
+  # Timing vars (only keep those that exist)
+  timing_vars_to_get <- c("precip_15_post_N","max_dry_spell_S3","edd_S3","heavy_rain_days_S1")
+  timing_vars_exist <- intersect(timing_vars_to_get, names(field_info))
+
+  # Ensure an ffy_id column to merge on
+  if (!"ffy_id" %in% names(field_info)) field_info[, ffy_id := ffy_id]
+
+  field_info_subset <- field_info[, .SD, .SDcols = c("ffy_id", timing_vars_exist)]
+
+  # Merge a single-row info table to every subplot row
+  if (nrow(field_info_subset) == 1L) {
+    merge(field_data_subset, field_info_subset, by = "ffy_id")
+  } else {
+    warning(sprintf("Info table for %s has %d rows (expected 1). Skipping.", ffy_id, nrow(field_info_subset)))
+    NULL
+  }
+})
+
+# Combine all fields, removing any NULLs from failed merges
+dat_bind <- rbindlist(all_data_list[!sapply(all_data_list, is.null)], fill = TRUE)
+
+# Basic cleaning - remove only rows with NA in key variables (yield or n_rate)
+dat_bind <- dat_bind[!is.na(yield) & !is.na(n_rate)]
+
+# Define predictor columns
+predictor_cols <- setdiff(names(dat_bind), c("ffy_id", "yield"))
+
+# ✅ Keep NAs in predictors — do NOT remove rows
+# If desired, you can report how many NAs exist
+na_summary <- sapply(dat_bind[, ..predictor_cols], function(x) sum(is.na(x)))
+cat("Number of missing values per predictor:\n")
+print(na_summary[na_summary > 0])
+
+# Optional: if using models that need numeric matrix input (e.g. XGBoost)
+# you can still keep NA; XGBoost handles them automatically
+print(paste("Created pooled data table with", nrow(dat_bind), "observations (including NA in predictors)."))
+print("Predictor columns:")
+print(predictor_cols)
+
+```
+
+# Step 3: Leave-One-Location-Out (LOLO) Cross-Validation
+
+Loop through each field, train models on the rest, predict the held-out field, and estimate/compare EONRs.
+
+```{r lolo_cv_loop, cache = FALSE} # Disable caching for the main loop
+
+unique_ffy_ids <- unique(dat_bind$ffy_id)
+results_list <- list() # Store results for each fold
+
+# Setup parallel processing
+# plan(multisession, workers = parallel::detectCores() - 1) 
+# Note: Parallelizing the outer loop with complex inner steps can be tricky.
+# Consider parallelizing the model training *within* the loop if needed.
+plan(sequential) # Start sequentially for debugging
+
+# --- Define Helper Function for EONR Calculation ---
+calculate_eonr_from_gam <- function(gam_model, data, price_ratio, n_range = seq(50, 300, by=1)) {
+  # Create newdata for prediction across a range of N rates
+  # Need average values of other covariates in the model
+  avg_covariates <- data[, lapply(.SD, mean, na.rm = TRUE), .SDcols = setdiff(all.vars(formula(gam_model)), c("yield", "n_rate"))]
+  if(nrow(avg_covariates)==0) { # Handle case with only n_rate in formula
+      newdata <- data.table(n_rate = n_range)
+  } else {
+      newdata <- data.table(n_rate = n_range)
+      newdata <- newdata[, cbind(.SD, avg_covariates[rep(1, .N)])]
+  }
+
+  # Predict yield and calculate marginal product (approximate with finite differences)
+  preds <- predict(gam_model, newdata = newdata, type = "response")
+  mp <- diff(preds) / diff(n_range) # Marginal product
+  
+  # Find N rate where MP is closest to the price ratio
+  optimal_n_index <- which.min(abs(mp - price_ratio))
+  eonr <- n_range[optimal_n_index]
+  
+  # Predict yield at EONR
+  yield_at_eonr <- predict(gam_model, newdata = data.table(newdata[optimal_n_index,]), type="response")
+  
+  return(list(EONR = eonr, Yield_at_EONR = yield_at_eonr, curve_data = data.table(n_rate=n_range, pred_yield=preds) ))
+}
+
+
+# --- Main LOLO Loop ---
+# Consider using future_lapply for parallel execution if desired/safe
+# results_list <- future_lapply(unique_ffy_ids, function(test_ffy_id) { ... }, future.seed = TRUE)
+
+for (test_ffy_id in unique_ffy_ids) {
+  
+  cat(paste("\n--- Processing Fold: Holding out", test_ffy_id, "---\n"))
+  
+  # --- a) Split Data ---
+  train_data <- dat_bind[ffy_id != test_ffy_id]
+  test_data <- dat_bind[ffy_id == test_ffy_id]
+  
+  if (nrow(test_data) == 0 || nrow(train_data) == 0) {
+    warning("Skipping fold due to missing train or test data.")
+    next
+  }
+  
+  # Prepare data matrices/frames for models
+  x_train <- as.matrix(train_data[, ..predictor_cols])
+  y_train <- train_data$yield
+  x_test <- as.matrix(test_data[, ..predictor_cols])
+  y_test <- test_data$yield # The true yield for calculating error later
+  
+  # --- b) Train ML Models ---
+  cat("Training XGBoost...\n")
+  xgb_model <- xgboost(
+    data = x_train, label = y_train,
+    nrounds = 100, objective = "reg:squarederror",
+    eta = 0.1, max_depth = 6, subsample = 0.8, colsample_bytree = 0.8,
+    nthread = 1, # Use more threads if not parallelizing outer loop
+    verbose = 0
+  )
+  
+  cat("Training Random Forest...\n")
+  rf_formula <- reformulate(predictor_cols, response = "yield")
+  rf_model <- ranger(
+     formula = rf_formula,
+     data = train_data, 
+     num.trees = 200, 
+     mtry = max(1, floor(length(predictor_cols)/3)), # Standard heuristic
+     importance = "none",
+     num.threads = 1 # Use more threads if not parallelizing outer loop
+  )
+  
+  # --- c) Predict Yields for Test Field ---
+  pred_yield_xgb <- predict(xgb_model, x_test)
+  pred_yield_rf <- predict(rf_model, data = test_data)$predictions
+  
+  # --- d) Smooth Predicted Response & Calculate Predicted EONR ---
+  cat("Smoothing predicted responses and calculating Predicted EONR...\n")
+  test_data_pred_xgb <- copy(test_data)[, yield := pred_yield_xgb]
+  test_data_pred_rf <- copy(test_data)[, yield := pred_yield_rf]
+  
+  # Define GAM formula (use smooth for N, potentially linear/smooth for others)
+  # Simple version: only smooth N. Add other covariates if they improve fit significantly.
+  # Using bs='cv' for shape constraint (concave downwards)
+  gam_formula_pred <- formula(yield ~ s(n_rate, bs = "cv", k = 4)) 
+  # Consider adding field characteristics 's(clay)', 's(elev)' if desired
+  
+  # Fit GAM to XGBoost predictions
+  gam_pred_xgb <- tryCatch(gam(gam_formula_pred, data = test_data_pred_xgb), error=function(e) NULL)
+  eonr_pred_xgb <- if(!is.null(gam_pred_xgb)) calculate_eonr_from_gam(gam_pred_xgb, test_data_pred_xgb, reference_price_ratio) else list(EONR=NA, Yield_at_EONR=NA, curve_data=NULL)
+  
+  # Fit GAM to Random Forest predictions
+  gam_pred_rf <- tryCatch(gam(gam_formula_pred, data = test_data_pred_rf), error=function(e) NULL)
+  eonr_pred_rf <- if(!is.null(gam_pred_rf)) calculate_eonr_from_gam(gam_pred_rf, test_data_pred_rf, reference_price_ratio) else list(EONR=NA, Yield_at_EONR=NA, curve_data=NULL)
+
+  # --- e) Estimate True Response & Calculate True EONR ---
+  cat("Estimating true response and calculating True EONR...\n")
+  # Fit GAM directly to the observed data of the test field
+  gam_true <- tryCatch(gam(gam_formula_pred, data = test_data), error=function(e) NULL)
+  eonr_true <- if(!is.null(gam_true)) calculate_eonr_from_gam(gam_true, test_data, reference_price_ratio) else list(EONR=NA, Yield_at_EONR=NA, curve_data=NULL)
+
+  # --- f) Store Results ---
+  results_list[[test_ffy_id]] <- list(
+    ffy_id = test_ffy_id,
+    EONR_True = eonr_true$EONR,
+    Yield_at_EONR_True = eonr_true$Yield_at_EONR,
+    EONR_Pred_XGB = eonr_pred_xgb$EONR,
+    Yield_at_EONR_Pred_XGB = eonr_pred_xgb$Yield_at_EONR,
+    EONR_Pred_RF = eonr_pred_rf$EONR,
+    Yield_at_EONR_Pred_RF = eonr_pred_rf$Yield_at_EONR,
+    Curve_True = eonr_true$curve_data,
+    Curve_Pred_XGB = eonr_pred_xgb$curve_data,
+    Curve_Pred_RF = eonr_pred_rf$curve_data,
+    Observed_Data = test_data[, .(n_rate, yield)] # Store observed points for plotting
+  )
+} # End LOLO loop
+
+# --- Combine results ---
+results_dt <- rbindlist(lapply(results_list, function(x) {
+    # Extract scalar EONR values
+    data.table(
+      ffy_id = x$ffy_id,
+      EONR_True = x$EONR_True,
+      EONR_Pred_XGB = x$EONR_Pred_XGB,
+      EONR_Pred_RF = x$EONR_Pred_RF
+      # Add Yield_at_EONR if needed
+    )
+}), fill = TRUE)
+
+print("LOLO CV Complete. EONR Comparison Table:")
+print(results_dt)
+
+# Save EONR results
+fwrite(results_dt, here("Results", "Tables", "eonr_comparison_lolo.csv"))
+# Save the full list containing curve data
+saveRDS(results_list, here("Data", "Processed", "lolo_results_full_list.rds"))
+
+```
+
+# Step 4: Comparison Plots
+
+Generate faceted plots comparing the true vs. predicted response curves.
+
+```{r comparison_plots}
+# Load full results if needed
+results_list <- readRDS(here("Data", "Processed", "lolo_results_full_list.rds"))
+
+# Prepare data for plotting curves
+plot_data_curves <- rbindlist(lapply(names(results_list), function(ffy) {
+  res <- results_list[[ffy]]
+  rbindlist(list(
+    if(!is.null(res$Curve_True)) res$Curve_True[, .(ffy_id = ffy, type = "True (Observed Data)", n_rate, pred_yield)],
+    if(!is.null(res$Curve_Pred_XGB)) res$Curve_Pred_XGB[, .(ffy_id = ffy, type = "Predicted (XGBoost)", n_rate, pred_yield)],
+    if(!is.null(res$Curve_Pred_RF)) res$Curve_Pred_RF[, .(ffy_id = ffy, type = "Predicted (RandForest)", n_rate, pred_yield)]
+  ), fill = TRUE)
+}), fill = TRUE)
+
+# Prepare observed data points for plotting
+plot_data_points <- rbindlist(lapply(names(results_list), function(ffy){
+    res <- results_list[[ffy]]
+    if(!is.null(res$Observed_Data)) res$Observed_Data[, ffy_id := ffy]
+}), fill=TRUE)
+
+# Create the faceted plot
+response_curve_plot <- ggplot() +
+  # Observed data points
+  geom_point(data = plot_data_points, aes(x = n_rate, y = yield), color = "grey70", alpha = 0.5, size = 0.5) +
+  # Fitted GAM curves
+  geom_line(data = plot_data_curves, aes(x = n_rate, y = pred_yield, color = type), linewidth = 1.2) +
+  # Add EONR vertical lines
+  geom_vline(data = results_dt, aes(xintercept = EONR_True, color = "True (Observed Data)"), linetype = "dashed") +
+  geom_vline(data = results_dt, aes(xintercept = EONR_Pred_XGB, color = "Predicted (XGBoost)"), linetype = "dotted") +
+  geom_vline(data = results_dt, aes(xintercept = EONR_Pred_RF, color = "Predicted (RandForest)"), linetype = "dotdash") +
+  
+  scale_color_manual(values = c("True (Observed Data)" = "black", 
+                                "Predicted (XGBoost)" = "blue", 
+                                "Predicted (RandForest)" = "red")) +
+  facet_wrap(~ ffy_id, scales = "free") +
+  labs(
+    title = "Comparison of True vs. Predicted Yield-N Response Curves and EONR (LOLO CV)",
+    subtitle = "Solid lines = GAM fits, Vertical lines = Calculated EONR",
+    x = "Nitrogen Rate (lbs/acre)",
+    y = "Yield (bu/acre)",
+    color = "Response Curve Type"
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom", strip.text = element_text(size = 7))
+
+# Save plot
+output_path_plot <- here("Results", "Figures", "lolo_response_curve_comparison.png")
+ggsave(output_path_plot, plot = response_curve_plot, width = 16, height = 12, dpi = 300)
+
+print(paste("Comparison plot saved to:", output_path_plot))
+# Display plot (might be large)
+# print(response_curve_plot)
+```

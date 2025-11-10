@@ -1,0 +1,170 @@
+---
+title: "Ensemble Models — Leave-One-Location-Out (LOLO) Run"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+params:
+  data_path: "Data/Processed/Analysis_ready/stacked_analysis_table.rds"
+  y_var: "yield"
+  n_col: "n_rate"
+  # independent variables for ensemble models
+  x_vars: !expr c(
+    "n_rate", "elev", "slope", "aspect", "TPI",
+    "clay", "sand", "water_storage",
+    "prcp_t", "gdd_t", "edd_t")
+  # holdout and model toggles
+  
+  test_ffy_id: "8_1_2023"
+  use_rf: true
+  use_xgb: true
+  use_grf: false
+  use_scam: false
+  n_points: 40
+
+   # fast training hyperparams
+  rf:  !expr list(num.trees = 200, mtry = NULL, min.node.size = 50,
+                  max.depth = 6, sample.fraction = 0.6, seed = 123)
+  xgb: !expr list(eta = 0.05, max_depth = 3, min_child_weight = 30,
+                  gamma = 4, subsample = 0.6, colsample_bytree = 0.6,
+                  lambda = 3.0, alpha = 0.0, nrounds = 200, monotone = TRUE)
+  grf: !expr list(num.trees = 500, sample.fraction = 0.6, seed = 123)
+  scam_k: 5
+
+---
+
+
+```{r setup, include=FALSE}
+
+library(here)
+
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+
+suppressPackageStartupMessages({
+  library(dplyr); library(tidyr); library(ggplot2); library(purrr); library(readr)
+
+})
+
+source(here::here("Code/src/functions_for_ensembles.R"))
+
+```
+
+## 1. Load data
+
+```{r load}
+
+# Fallback params for interactive runs
+if (!exists("params")) {
+  params <- list(
+    data_path   = "Data/Processed/Analysis_ready/stacked_analysis_table.rds",
+    y_var       = "yield",
+    n_col       = "n_rate",
+    x_vars      = c("n_rate","elev","slope","aspect","TPI",
+                    "clay","sand","water_storage","prcp_t","gdd_t","edd_t"),
+    test_ffy_id = "8_1_2023",
+    use_rf      = TRUE,
+    use_xgb     = TRUE,
+    use_scam    = FALSE,
+    n_points    = 40,
+    rf  = list(num.trees = 200, mtry = NULL, min.node.size = 50,
+               max.depth = 6, sample.fraction = 0.6, seed = 123),
+    xgb = list(eta = 0.05, max_depth = 3, min_child_weight = 30,
+               gamma = 4, subsample = 0.6, colsample_bytree = 0.6,
+               lambda = 3.0, alpha = 0.0, nrounds = 200, monotone = TRUE),
+    scam_k = 5
+  )
+}
+
+df0 <- readRDS(params$data_path)
+df  <- df0 %>% add_farm_field(ffy_col = "ffy_id", out_col = "farm_field")
+
+# Trim + assert names
+names(df)       <- trimws(names(df))
+params$x_vars   <- trimws(params$x_vars)
+stopifnot(params$y_var %in% names(df),
+          params$n_col %in% names(df),
+          all(params$x_vars %in% names(df)))
+
+glimpse(df, width = 80)
+
+```
+
+## 2. Run one LOLO experiment (hold out a specific farm-field-year)
+```{r leave-one-location-out}
+
+# Coerce toggles + default lists
+params$use_rf   <- isTRUE(params$use_rf)
+params$use_xgb  <- isTRUE(params$use_xgb)
+params$use_scam <- isTRUE(params$use_scam)
+params$rf  <- params$rf  %||% list()
+params$xgb <- params$xgb %||% list()
+
+# Basic checks for the holdout slice
+test_df <- df[df$ffy_id == params$test_ffy_id, , drop = FALSE]
+miss_all  <- setdiff(params$x_vars, names(df))
+miss_test <- setdiff(params$x_vars, names(test_df))
+if (length(miss_all))  stop("Missing in FULL df: ", paste(miss_all, collapse = ", "))
+if (length(miss_test)) stop("Missing in TEST df: ", paste(miss_test, collapse = ", "))
+
+# Run
+res <- lolo_run_once(
+  df          = df,
+  test_ffy_id = params$test_ffy_id,
+  y_var       = params$y_var,
+  x_vars      = params$x_vars,
+  n_col       = params$n_col,
+  use_rf      = params$use_rf,
+  use_xgb     = params$use_xgb,
+  rf          = params$rf,
+  xgb         = params$xgb,
+  n_points    = params$n_points,
+  use_scam    = params$use_scam,
+  scam_k      = params$scam_k
+)
+
+cat("Holdout:", res$test_ffy_id, " | Location (farm_field):", res$test_loc, "\n")
+
+```
+
+## 3. Holdout metrics (subplot-level)
+
+```{r subplot-holdout}
+
+metrics <- res$holdout_metrics
+if (!is.null(res$scam)) metrics <- dplyr::bind_rows(metrics, res$scam$metrics)
+metrics %>% dplyr::arrange(RMSE)
+
+```
+
+## 4. Predict Yield N response (curv)
+
+```{r predict-yield-n }
+
+curve_all <- res$curve_table
+if (!is.null(res$scam)) {
+  curve_all <- dplyr::left_join(curve_all, res$scam$curves, by = params$n_col)
+}
+
+model_cols <- intersect(c("RF","XGB","ENSEMBLE","SCAM"), names(curve_all))
+
+curve_long <- curve_all %>%
+  tidyr::pivot_longer(cols = dplyr::all_of(model_cols),
+                      names_to = "model", values_to = "yhat") %>%
+  dplyr::filter(!is.na(yhat))
+
+ggplot(curve_long, aes(x = .data[[params$n_col]], y = yhat, color = model)) +
+  geom_line(linewidth = 1) +
+  labs(x = "Nitrogen rate", y = "Predicted yield",
+       title = paste0("Yield–N curves (holdout ", params$test_ffy_id, ")"),
+       color = "Model") +
+  theme_minimal(base_size = 12)
+
+```
+
+## 5. Roughness (lower is smoother)
+
+```{r roughness }
+rough_tbl <- res$curve_roughness
+if (!is.null(res$scam)) rough_tbl <- bind_rows(rough_tbl, res$scam$rough)
+rough_tbl %>% arrange(roughness)
+```

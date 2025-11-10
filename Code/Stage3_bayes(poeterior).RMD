@@ -1,0 +1,106 @@
+---
+title: "Stage 3 — Sequential Bayesian Updates"
+author: "Jaeseok Hwang"
+date: "`r format(Sys.Date())`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, fig.width = 7, fig.height = 4.5)
+source("R/utils_io.R")
+source("R/modeling_bayes.R")
+params <- yaml::read_yaml("code/_params.yml")
+
+# Stage-specific output paths
+out_tbl  <- "results/tables/stage3_update"
+out_fig  <- "results/figures/stage3_update"
+out_data <- "data/processed/stage3_update"
+dir.create(out_tbl,  recursive = TRUE, showWarnings = FALSE)
+dir.create(out_fig,  recursive = TRUE, showWarnings = FALSE)
+dir.create(out_data, recursive = TRUE, showWarnings = FALSE)
+set.seed(1234)
+
+```
+
+
+# Load Prior Fit & New Data
+
+```{r load prior, include=FALSE}
+# Prior from Stage 2
+
+fit_prior <- readRDS("results/tables/stage2_bayes/bayes_fit.rds")
+
+# New data arriving this season (prepare to match Stage 2 columns)
+
+# Implement read_new_field_blocks() in utils_io.R to return a data.frame
+
+panel_new <- read_new_field_blocks()  # must contain: yield, N_rate, field_id, gdd_early, rain_early (or adjust formula)
+stopifnot(all(c("yield","N_rate","field_id") %in% names(panel_new)))
+
+```
+
+
+# Update with Informative Priors
+
+```{r update prior, include=FALSE}
+
+fit_upd <- update_bayes_with_prior(
+fit_prior,
+new_data = panel_new
+)
+
+# Save artifacts
+
+saveRDS(fit_upd, file.path(out_tbl, "bayes_fit_updated.rds"))
+summ_upd <- extract_posterior_summary(fit_upd, file.path(out_tbl, "bayes_coef_summary_updated.csv"))
+
+plot_bayes_curves(fit_upd, df_for_plot = panel_new,
+save_path = file.path(out_fig, "bayes_curves_updated.png"))
+
+
+```
+
+# Compare Prior vs Updated 
+
+```{r compare, include=FALSE}
+# Quick side-by-side curve comparison at population level
+
+cur_prior <- posterior_curves_over_N(fit_prior, df = panel_new)
+cur_upd   <- posterior_curves_over_N(fit_upd,   df = panel_new)
+
+cur_prior$type <- "prior"
+cur_upd$type   <- "updated"
+curves <- dplyr::bind_rows(cur_prior, cur_upd)
+
+library(ggplot2)
+p_compare <- ggplot(curves, aes(N_rate, Estimate, color = type, fill = type)) +
+geom_line() +
+geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5), alpha = 0.15, colour = NA) +
+labs(y = "Predicted yield", title = "Posterior curves: prior vs. updated") +
+theme_minimal()
+ggsave(file.path(out_fig, "bayes_curves_compare.png"), p, width = 7, height = 4.5)
+
+
+p_compare
+
+
+```
+
+
+
+
+# Fit Bayesian Hierarchical Model
+
+```{r fit model, include=FALSE}
+
+df_b <- readRDS(file.path(out_data, "panel_with_timing_vars.rds"))
+fit_b <- fit_bayes_hier(df_b)                               # from modeling_bayes.R
+save_bayes_artifacts(fit_b, out_tbl, out_fig, df_for_plot = df_b)
+
+
+```

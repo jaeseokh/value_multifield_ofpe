@@ -1,0 +1,583 @@
+---
+title: "Anonymize_field_name"
+author: "Jaeseok Hwang"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: defaulta
+---
+
+
+
+
+## Knitr option
+
+```{r, cache = F, echo = F, results = "hide"}
+#####
+
+library(knitr)
+
+knitr::opts_chunk$set(
+  cache = FALSE,
+  echo = FALSE,
+  warning = FALSE,
+  cache.lazy = FALSE,
+  fig.retina = 6,
+  fig.height = 9,
+  fig.width = 9,
+  message = FALSE,
+  error = TRUE
+)
+
+options(knitr.duplicate.label = "allow")
+
+```
+
+#### Packages 
+
+```{r pacakages, cache = FALSE, results = "hide"}
+
+library(here)
+library(rmarkdown)
+library(jsonlite)
+library(bookdown)
+library(knitr)
+library(stringr)
+library(measurements)
+library(data.table)
+library(tidyverse)
+library(smoother)
+library(dplyr)
+library(sf)
+
+  
+```
+
+# Preparation
+
+```{r preparations, cache = T, results = "hide"}
+source(here("Code","Main","0_Set_up_preparation.R"))
+source(here("Code","Functions","functions_for_process.R"))
+
+
+grower_path <- "/Users/jaeseokhwang/Library/CloudStorage/Box-Box/DIFM_HQ/Data/Growers/"
+```
+
+
+# Find trial data list
+```{r trial data list, cache = T, results = "hide"}
+# Read the field parameter data (private data, make name to be anynomous) 
+field_data <- jsonlite::fromJSON(
+ file.path(
+    here("Data", "Private"),
+    "field_parameter_private.json"
+  ),
+  flatten = TRUE
+) %>%
+ data.table() %>%
+  .[, field_year := paste(farm, field, year, sep = "_")]
+
+# Filter out other crop types trial data 
+corn_trial_ls <- field_data[crop=="corn"]$field_year
+
+# Save the list of corn trial fields that contains
+# analysis (ready) data in DIFM grower folder
+
+trial_data_list <- c()
+
+for (i in 1:length(corn_trial_ls)) {
+  
+  ffy <- corn_trial_ls[i]
+  
+  grower <- paste0(grower_path, ffy)
+  
+  # Check if there exists anlaysis_data 
+ analysis_dt <- list.files(path = grower, pattern = "analysis_data", ignore.case = TRUE, recursive = TRUE)
+ 
+   if (length(analysis_dt) > 0) {
+    # Store the matching files in the c()
+    trial_data_list[i] <- ffy
+   }
+}
+
+# Remove trial fields that does not contain analysis (ready) data
+trial_data_list <- trial_data_list[!is.na(trial_data_list)]
+
+trial_data_list <- trial_data_list[!trial_data_list %in% c("Rendel_Whitebird_2023", "Rohrscheib_MillerWesttargetrateadjusted_2023",
+"Larson_EB2_2017","DuraClub_D09_2022",
+ "Lecture_Research_2023","Braungardt_Shed_2023")]
+
+#--163 out of 210 trial fields have analysis data--#
+
+saveRDS(trial_data_list,here("Data","Private","trial_data_list_private.rds"))
+
+```
+
+# Data Transfer and extract only exp data and geometry data
+
+```{r data transfer and extract, echo = F, results = "hide"}
+
+
+# Read trial fields list w/ analysis data ( corn, 163 fields data)
+trial_data_list <-readRDS(here("Data","Private","trial_data_list_private.rds"))
+
+
+# Sort out the exp data that does not have s_rate and yield variable in data
+# sort out the non-exp data to updates non-exp data in the data processing 
+# steps with the very recent version
+
+for(i in 1:length(trial_data_list)){
+
+  # Choose the experimental trial field from the list
+  ffy <-  trial_data_list[i]
+  
+     exp_dat_sf_path <- paste0(grower_path, ffy, "/Analysis-Ready/analysis_data.rds")
+  
+    exp_dat_sf <- exp_tb - NULL 
+
+  # Attempt to read and transform the experimental data
+  if (file.exists(exp_dat_sf_path)) {
+    exp_dat_sf <- readRDS(exp_dat_sf_path) %>%
+      st_set_4326() %>% st_transform(4326)
+  } else {
+    message(paste("File not found for:", ffy))
+    next  # Skip to the next iteration if the file doesn't exist
+  }
+
+  # If there is no experimental input varaible in the data 
+ if (all(!vars_to_check %in% names( exp_dat_sf))) {
+    next  # Skip to the next iteration if none of the variables are present
+  } 
+                
+  # to prevent duplicated name of coordinate variables and geometry name
+ exp_tb <- as.data.table(exp_dat_sf)[, !c("X", "Y") %in% names(exp_dat_sf), with = FALSE]
+
+  # to make name consistent ( yield, s_rate, n_rate)
+    exp_tb <- exp_tb %>%
+  setnames(names(.), tolower(names(.))) %>%
+  setnames(names(.), 
+           ifelse(grepl("ec02", names(.)), "ecs",
+           ifelse(grepl("yield_vol", names(.)), "yield", 
+           ifelse(grepl("seed_rate", names(.)), "s_rate",
+           ifelse(grepl("uan32_rate|nh3_rate|uan28_rate|urea_rate", names(.)), "n_rate", 
+                  names(.))))))
+
+      # Rename the geometry column to "geom"
+setnames(exp_tb, old = attr(exp_dat_sf, "sf_column"), new = "geom")
+                   
+      exp_tb    <- exp_tb  %>%
+   # Keep only the specified variables
+  .[, intersect(c("obs_id", "yield", "s_rate", "n_rate","geom"), names(.)), with = FALSE]
+
+
+ if (!all(c('yield','n_rate') %in% names(exp_tb))) {
+    next  # Skip to the next iteration if none of the variables are present
+  } 
+      
+  saveRDS(exp_tb, here("Data","Private","exp_tb2_data",paste0(ffy,"_tb.rds")))
+
+}
+
+# 101 data out of 163 data has been collected ( Oct 3rd, 2024)
+
+```
+```{r boundary box extract, echo = F, results = "hide"}
+
+# Read trial fields list ( corn, 166 fields data)
+exp_tb_list <- list.files(here("Data","Private","exp_tb_data")) %>%
+ str_subset("_tb.rds") %>%
+   str_remove("_tb.rds")
+
+
+# List of nitrogen types
+n_types <- c("nh3", "urea", "uan32", "uan28")
+
+# Create an empty data frame to store results
+date_info  <- data.frame(
+  experiment = character(),
+  yield_time_value = character(),
+  n_time_value = character(),
+  s_time_value = character(),
+  yield_product_values = character(),
+  n_product_values = character(),
+  s_product_values = character(),
+  stringsAsFactors = FALSE
+)
+
+
+# Loop over each experiment in exp_tb_list
+for(i in 1:length(exp_tb_list)) {
+  ffy <- exp_tb_list[i]
+
+  # Check for both "Raw" and "raw" folder names
+  raw_folder <- paste0(grower_path, ffy, "/", c("Raw", "raw"))
+  raw_folder <- raw_folder[file.exists(raw_folder)][1]  # Take the first valid folder
+  
+  if (is.na(raw_folder)) {
+    print(paste("No valid Raw/raw folder found for Experiment:", ffy))
+    next
+  }
+
+  # List all shapefiles in the folder
+  shp_files <- list.files(raw_folder, pattern = "\\.shp$", full.names = TRUE)
+  
+  # Find the yield shapefile (contains "yield" in the name)
+  yield_shp <- shp_files[grep("yield", tolower(shp_files))]
+  
+  # Find the nitrogen shapefile (contains "as-applied-n" or any nitrogen types)
+  n_shp <- shp_files[grep("as-applied-(n|nh3|urea|uan32|uan28)", tolower(shp_files))]
+  
+  s_shp <- shp_files[grep("as-applied-(s|seed)", tolower(shp_files))]
+  
+
+  # Select the first file for both yield and nitrogen if multiple found
+  if(length(yield_shp) == 0 || length(n_shp) == 0) {
+    print(paste("Missing yield or nitrogen shapefile for Experiment:", ffy))
+    next  # Skip this iteration if either shapefile is missing
+  }
+  
+  # If both yield and nitrogen shapefiles are found, select the first one
+  yield_shp <- yield_shp[1]
+  n_shp <- n_shp[1]
+  
+  # Read the shapefiles
+  yield_data <- st_read(yield_shp)
+  n_data <- st_read(n_shp)
+ 
+  # Convert all column names to lowercase
+  names(yield_data) <- tolower(names(yield_data))
+  names(n_data) <- tolower(names(n_data))
+
+  # List potential time variable names
+  time_var_names <- c("time", "isotime", "heure", "utc", "tiempo", "date")
+  
+  # Check if any time variable exists in the yield data
+  yield_time_col <- intersect(time_var_names, names(yield_data))
+  n_time_col <- intersect(time_var_names, names(n_data))
+  
+  # If 'date' is present in the columns, select 'date', otherwise, use the first available column
+  if("date" %in% yield_time_col) {
+    yield_time_value <- yield_data[["date"]][1]
+  } else if(length(yield_time_col) > 0) {
+    yield_time_value <- yield_data[[yield_time_col[1]]][1]
+  } else {
+    yield_time_value <- NA
+  }
+
+  if("date" %in% n_time_col) {
+    n_time_value <- n_data[["date"]][1]
+  } else if(length(n_time_col) > 0) {
+    n_time_value <- n_data[[n_time_col[1]]][1]
+  } else {
+    n_time_value <- NA
+  }
+  
+  # Check if 'product' column exists in the yield data
+  if("product" %in% names(yield_data)) {
+    # Get unique product values from yield data (case-insensitive)
+    yield_product_values <- unique(tolower(yield_data$product))
+  } else {
+    # If 'product' column is missing, set a placeholder value
+    yield_product_values <- "No product"
+  }
+
+  # Check if 'product' column exists in the nitrogen data
+  if("product" %in% names(n_data)) {
+    # Get unique product values from nitrogen data (case-insensitive)
+    n_product_values <- unique(tolower(n_data$product))
+  } else {
+    # If 'product' column is missing, set a placeholder value
+    n_product_values <- "No product"
+  }
+
+# Check if s_shp exists and is a valid file path
+if (length(s_shp) > 0 ) {
+  s_data <- st_read(s_shp[1])  # Read the s_shp if it exists
+  names(s_data) <- tolower(names(s_data))
+  
+  # List potential time variable names for s_data
+  s_time_col <- intersect(time_var_names, names(s_data))
+  
+  # If 'date' is present in the columns, select 'date', otherwise, use the first available column
+  if("date" %in% s_time_col) {
+    s_time_value <- s_data[["date"]][1]
+  } else if(length(s_time_col) > 0) {
+    s_time_value <- s_data[[s_time_col[1]]][1]
+  } else {
+    s_time_value <- NA
+  }
+  
+  # Check if 'product' column exists in the s_data
+  if("product" %in% names(s_data)) {
+    s_product_values <- unique(tolower(s_data$product))
+  } else {
+    s_product_values <- "No product"
+  }
+} else {
+  # If s_shp does not exist or contains multiple elements, set s_time_value and s_product_values to NA
+  s_time_value <- NA
+  s_product_values <- "No product"
+}
+
+
+  # Convert time values to a valid Date or POSIXct class using the function
+  yield_time_value <- convert_to_datetime(yield_time_value)
+  n_time_value <- convert_to_datetime(n_time_value)
+  s_time_value <- convert_to_datetime(s_time_value)
+
+  # Add the results to the results data frame
+  date_info <- rbind(date_info, data.frame(
+    experiment = ffy,
+    yield_time_value = yield_time_value,
+    n_time_value = n_time_value,
+    s_time_value = s_time_value,
+    yield_product_values = paste(yield_product_values, collapse = ", "),
+    n_product_values = paste(n_product_values, collapse = ", "),
+    s_product_values = paste(s_product_values, collapse = ", "),
+    stringsAsFactors = FALSE
+  ))
+
+}
+
+
+
+# library(flextable)
+
+# results_flextable <- flextable(date_info)
+
+# # Customize the flextable (optional)
+# results_flextable <- results_flextable %>%
+#   compose(j = "experiment", value = as_paragraph(as_chunk(experiment))) %>%
+#   compose(j = "yield_time_value", value = as_paragraph(as_chunk(yield_time_value))) %>%
+#   compose(j = "n_time_value", value = as_paragraph(as_chunk(n_time_value))) %>%
+#   compose(j = "yield_product_values", value = as_paragraph(as_chunk(yield_product_values))) %>%
+#   compose(j = "n_product_values", value = as_paragraph(as_chunk(n_product_values)))
+
+saveRDS(date_info, here("Data","Private","date_info.rds"))
+
+
+
+for(i in 1:length(exp_tb_list)){
+  
+  ffy <- exp_tb_list[i]
+ 
+  boundary_file <- td_file <- boundary_sf <- NULL
+
+ boundary_file <- paste0(grower_path, ffy, "/TrialDesign/boundary.shp")
+  
+  td_file <- paste0(grower_path, ffy, "/TrialDesign") %>% 
+    list.files(full.names = TRUE) %>% 
+    .[str_detect(., "shp")] %>% 
+    .[str_detect(., "trial-design")] %>% 
+    .[1]  # Get the first one in case we have two separate files
+
+  # Read boundary file or trial design file
+  if (file.exists(boundary_file)) {
+    boundary_sf <- st_read(boundary_file) %>%
+      st_set_4326() %>%
+      st_transform(4326)%>%
+      st_bbox() %>%
+      st_as_sfc() %>%
+      st_as_sf()
+  } else if (file.exists(td_file)) {
+    boundary_sf <- st_read(td_file) %>%
+      st_set_4326() %>%
+      st_transform(4326)%>%
+      st_bbox() %>%
+      st_as_sfc() %>%
+      st_as_sf()
+  } else {
+    stop("Neither boundary file nor trial design file exists.")
+  }
+  
+   saveRDS(boundary_sf, here("Data","Private","exp_bdry_data",paste0(ffy,"_bdry.rds")))
+}
+
+```
+
+# Field Parameter and Data Anonymize (no farm, field information )
+
+```{r field parameter anonymize, echo = F, results = "hide"}
+
+# Read trial fields list ( corn, 166 fields data)
+exp_tb_list <- list.files(here("Data","Private","exp_tb_data")) %>%
+ str_subset("_tb.rds") %>%
+   str_remove("_tb.rds")
+
+
+date_info <-readRDS(here("Data","Private","date_info.rds"))
+
+
+match(exp_tb_list, date_info$experiment)
+
+
+# Read trial fields list (corn, 166 fields data)
+exp_tb_list <- list.files(here("Data","Private","exp_tb_data")) %>%
+  str_subset("_tb.rds") %>%
+  str_remove("_tb.rds")
+
+## Functions to convert farm & field name into id 
+convert_ffy_list <- function(ffy_list) {
+  # Step 1: Split farm, field, and year
+  split_ffy <- strsplit(ffy_list, "_")
+  
+  # Step 2: Create unique farm names
+  farm_names <- unique(sapply(split_ffy, function(x) x[1]))
+  
+  # Initialize an empty list to store the results
+  ffy_id_list <- vector("character", length(ffy_list))
+  
+  # Step 3: Loop through each farm and assign field IDs starting from 1 for each farm
+  for (farm in farm_names) {
+    # Get the rows corresponding to the current farm
+    farm_rows <- sapply(split_ffy, function(x) x[1]) == farm
+    
+    # Get the unique field names for this farm
+    field_names <- unique(sapply(split_ffy[farm_rows], function(x) x[2]))
+    
+    # Create a field map for the current farm, assigning 1, 2, 3, ... to each field
+    field_map <- setNames(1:length(field_names), field_names)
+    
+    # Replace the farm and field with the mapped values
+    ffy_id_list[farm_rows] <- sapply(split_ffy[farm_rows], function(x) {
+      farm_number <- which(farm_names == x[1])  # Map farm to a number
+      field_number <- field_map[x[2]]  # Map field to its ID for this farm
+      year <- x[3]  # Keep the year as it is
+      paste(farm_number, field_number, year, sep = "_")
+    })
+  }
+  
+  # Return the converted list
+  return(ffy_id_list)
+}
+
+## ffy_id_list is the list of ffy where farm and field names are replaced by id
+ffy_id_list <- convert_ffy_list(exp_tb_list)
+
+
+ffy_name_conv_list <- cbind(exp_tb_list,ffy_id_list) %>%data.frame()
+
+ #saveRDS(ffy_name_conv_list, here("Data","Private","ffy_name_conv_list.rds" ))
+
+# Match the experiment names in exp_tb_list with date_info$experiment
+matched_indices <- match(exp_tb_list, date_info$experiment)
+
+# Create a data frame to hold the combined information
+exp_tb_date <- data.frame(
+  ffy_id = ffy_id_list,
+  yield_time = date_info$yield_time_value[matched_indices],
+  n_time = date_info$n_time_value[matched_indices],
+  s_time = date_info$s_time_value[matched_indices],
+  yield_product = date_info$yield_product_values[matched_indices],
+  n_product = date_info$n_product_values[matched_indices],
+  s_product = date_info$s_product_values[matched_indices],
+  stringsAsFactors = FALSE
+)
+
+# Visual check: Print the first few rows of the combined data
+print(head(exp_tb_date))
+
+saveRDS(exp_tb_date,here("Data","Raw","date_product_info.rds") )
+
+
+
+# Now, let's anonymize the field parameter json file
+
+# Step 1: Filter the data based on exp_tb_list
+#  (101 ffy that is sorted out by the data processing step abiove)
+
+field_data_filtered <- field_data[field_data$field_year %in%  exp_tb_list, ]
+
+# Step 2: Remove the private information columns trial_supervisor and researcher
+field_data_filtered[, c("trial_supervisor", "researcher") := NULL]
+
+# Step 3: Replace the field_year with the anonymized ffy_id
+ffy_id_matched <- ffy_id_list[match(field_data_filtered$field_year, exp_tb_list)]
+
+field_data_filtered$field_year <- ffy_id_matched 
+
+# Check the matched results
+head(field_data_filtered[,c("farm","field","year","field_year")])
+tail(field_data_filtered[,c("farm","field","year","field_year")])
+# Step 4: Split field_year into farm and field 
+split_ffy_id <- strsplit(as.character(field_data_filtered$field_year), "_")
+
+# Step 5: Create new farm and field columns
+field_data_filtered$farm <- sapply(split_ffy_id, function(x) x[1])  # Get the first element (farm)
+field_data_filtered$field <- sapply(split_ffy_id, function(x) x[2]) # Get the second element (field)
+
+# Check the upated farm, field, year id
+head(field_data_filtered[,c("farm","field","year","field_year")])
+tail(field_data_filtered[,c("farm","field","year","field_year")])
+
+write_json(field_data_filtered, path = here("Data","Raw","field_parameter.json"),pretty = TRUE)
+
+
+```
+
+```{r data anonymize, echo = F, results = "hide"}
+
+# List RDS files
+
+exp_tb_rds_list <- list.files(here("Data", "Private", "exp_tb_data"), pattern = "_tb.rds$", full.names = TRUE)
+exp_bdry_rds_list <- list.files(here("Data", "Private", "exp_bdry_data"), pattern = "_bdry.rds$", full.names = TRUE)
+field_table <- readRDS(here("Data", "Private", "field_table.RDS"))
+
+# Create a vector to store the messages
+messages_tb <- messages_bdry <- c()
+
+# Create new directories for "_tb" and "_bdry" data
+new_tb_directory <- here("Data", "Raw", "exp_tb_data")
+new_bdry_directory <- here("Data", "Raw", "exp_bdry_data")
+
+# Create the new directories if they don't exist
+if (!dir.exists(new_tb_directory)) {
+  dir.create(new_tb_directory, recursive = TRUE)
+}
+if (!dir.exists(new_bdry_directory)) {
+  dir.create(new_bdry_directory, recursive = TRUE)
+}
+
+# Step 5: Loop through each RDS file and rename based on ffy_id_list
+for (i in seq_along(exp_tb_list)) {
+  old_ffy <- exp_tb_list[i]
+  new_ffy <- ffy_id_list[i]
+  
+  # Find the files that contain the old_ffy in the name
+  matching_tb_files <- exp_tb_rds_list[grepl(old_ffy, exp_tb_rds_list)]
+  matching_bdry_files <- exp_bdry_rds_list[grepl(old_ffy, exp_bdry_rds_list)]
+  
+  # Loop through matching tb files
+  for (old_tb in matching_tb_files) {
+    # Generate the new filename by replacing old_ffy with new_ffy
+    new_tb_name <- gsub(old_ffy, new_ffy, basename(old_tb)) # Use basename to get just the file name
+    new_tb_path <- file.path(new_tb_directory, new_tb_name)  # Create new file path for tb files
+    
+    # Copy the old file to the new directory
+    file.copy(old_tb, new_tb_path) 
+    
+    # Collect the message
+    messages_tb <- c(paste("Copied:", basename(old_tb), "->", new_tb_name, "to tb directory"))
+  }
+  
+  # Loop through matching bdry files
+  for (old_bdry in matching_bdry_files) {
+    # Generate the new filename by replacing old_ffy with new_ffy
+    new_bdry_name <- gsub(old_ffy, new_ffy, basename(old_bdry)) # Use basename to get just the file name
+    new_bdry_path <- file.path(new_bdry_directory, new_bdry_name)  # Create new file path for bdry files
+    
+    # Copy the old file to the new directory
+    file.copy(old_bdry, new_bdry_path) 
+    
+    # Collect the message
+    messages_bdry <- c(paste("Copied:", basename(old_bdry), "->", new_bdry_name, "to bdry directory"))
+  }
+}
+
+# Save messages as a TXT file
+writeLines(messages_tb, here("Data", "Private", "anonymize_rename_tb.txt"))
+writeLines(messages_bdry, here("Data", "Private", "anonymize_rename_bdry.txt"))
+
+
+```

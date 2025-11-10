@@ -1,0 +1,138 @@
+---
+title: "Stage 2 — Bayesian Hierarchical Model with Timing Weather"
+author: "Jaeseok Hwang"
+date: "`r format(Sys.Date())`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, fig.width = 7, fig.height = 4.5)
+source("R/utils_io.R")
+source("R/featurize_weather.R")
+source("R/modeling_bayes.R")
+params <- yaml::read_yaml("code/_params.yml")
+
+# Stage-specific output paths
+out_tbl  <- "results/tables/stage2_bayes"
+out_fig  <- "results/figures/stage2_bayes"
+out_data <- "data/processed/stage2_bayes"
+dir.create(out_tbl,  recursive = TRUE, showWarnings = FALSE)
+dir.create(out_fig,  recursive = TRUE, showWarnings = FALSE)
+dir.create(out_data, recursive = TRUE, showWarnings = FALSE)
+set.seed(1234)
+
+```
+
+
+
+# Manifest & Field-Year List
+
+```{r field-year, include=FALSE}
+
+# Field-year IDs prepared in Stage 1 (or earlier)
+
+ffy_ids <- readRDS(here::here("Data","Processed","ffy_id_list.rds"))
+
+# Date/operation info (s_time, n_time, yield_time) filtered to ffy_ids
+
+date_info_raw <- readRDS(here::here("Data","Raw","date_product_info.rds")) |> data.table::as.data.table()
+date_info <- date_info_raw[ffy_id %in% ffy_ids]
+
+```
+
+
+# Build Timing-Weather Features (per field-year)
+
+```{r build timing-weather, include=FALSE}
+
+make_feats_one <- function(ffy, date_info_tbl) {
+
+# centroid lat/lon from boundary
+
+bdry <- readRDS(here::here("Data","Raw","exp_bdry_data", paste0(ffy,"_bdry.rds"))) |> sf::st_make_valid()
+cen  <- sf::st_coordinates(sf::st_centroid(sf::st_union(bdry)))
+this <- date_info_tbl[ffy_id == ffy]
+
+# pick the year (prefer yield_time; fallback n_time)
+
+yr <- if (!is.na(this$yield_time)) lubridate::year(this$yield_time) else lubridate::year(this$n_time)
+
+daily <- download_daymet_point(lat = cen[1,"Y"], lon = cen[1,"X"], start_year = yr)
+
+postN <- compute_postN_features(daily, n_time = this$n_time, yield_time = this$yield_time)
+stage <- compute_stage_features(daily, s_time = this$s_time, n_time = this$n_time, yield_time = this$yield_time)
+
+as.data.frame(c(list(ffy_id = ffy), postN, stage))
+}
+
+feat_list <- lapply(ffy_ids, make_feats_one, date_info_tbl = date_info)
+feat_dt   <- data.table::rbindlist(feat_list, fill = TRUE)
+saveRDS(feat_dt, file.path(out_data, "timing_weather_features.rds"))
+
+```
+
+# Join Features to Panel for Modeling
+
+```{r export, include=FALSE}
+# Load processed panel from Stage 1 or build as needed
+
+panel0 <- tryCatch(readRDS("data/processed/stage1_legacy/legacy_model_input.rds"),
+error = function(e) NULL)
+
+if (is.null(panel0)) {
+raw  <- read_raw_inputs()
+proc <- process_ofpe(raw)
+panel0 <- dplyr::as_tibble(proc)
+}
+
+# Expecting: yield, N_rate, field_id (or similar). Join by key (ffy_id or field_id+year).
+
+# If your keys are different, adjust the join below.
+
+if (!"ffy_id" %in% names(panel0) && "ffy_id" %in% names(feat_dt)) {
+
+# Try to construct ffy_id if you store (field_id, year, block)
+
+# panel0 <- panel0 |> dplyr::mutate(ffy_id = paste(field_id, block_id, year, sep = "_"))
+
+}
+
+panel <- panel0 |> dplyr::left_join(feat_dt, by = "ffy_id")
+
+# Minimal columns the default Bayes formula expects:
+
+# yield, N_rate, gdd_early, rain_early, field_id
+
+# If you used S1..S4 features instead, you can change the formula in modeling_bayes.R
+
+if (!all(c("yield","N_rate","field_id") %in% names(panel))) {
+stop("Panel is missing required columns: yield, N_rate, field_id (and weather features).")
+}
+
+# For this template, derive two compact features from your stage features if needed:
+
+panel <- panel |>
+dplyr::mutate(
+gdd_early  = ifelse(!is.na(gdd_S1), gdd_S1, NA_real_),
+rain_early = ifelse(!is.na(precip_S1), precip_S1, NA_real_)
+)
+
+saveRDS(panel, file.path(out_data, "panel_with_timing_vars.rds"))
+
+
+```
+
+
+# Fit Bayesian Hierarchical Model
+
+```{r fit model, include=FALSE}
+
+df_b <- readRDS(file.path(out_data, "panel_with_timing_vars.rds"))
+fit_b <- fit_bayes_hier(df_b)                               # from modeling_bayes.R
+save_bayes_artifacts(fit_b, out_tbl, out_fig, df_for_plot = df_b)
+
+
+```

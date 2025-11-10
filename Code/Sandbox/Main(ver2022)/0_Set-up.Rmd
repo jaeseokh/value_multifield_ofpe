@@ -1,0 +1,137 @@
+---
+title: "0. Project Set-Up & Reproducibility"
+author: "Jaeseok Hwang"
+date: "`r format(Sys.Date())`"
+output:
+  github_document:
+    html_preview: false
+    toc: true
+    toc_depth: 3
+    number_sections: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r set up, cache = T, results = "hide"}
+
+# --- 0 Project Set-Up  ----------------------
+
+knitr::opts_chunk$set(
+echo = TRUE, message = FALSE, warning = FALSE, error = FALSE,
+fig.align = "center", fig.width = 7, fig.height = 4.5, dpi = 200,
+collapse = TRUE, comment = "#>"
+)
+
+options(
+scipen = 999, stringsAsFactors = FALSE,
+dplyr.summarise.inform = FALSE, pillar.sigfig = 6
+)
+
+# --- 1) Install & load packages --------------------------------------------
+
+.install_if_missing <- function(pkgs) {
+need <- pkgs[!pkgs %in% rownames(installed.packages())]
+if (length(need)) install.packages(need, dependencies = TRUE)
+invisible(lapply(pkgs, require, character.only = TRUE))
+}
+
+pkgs <- c("here","fs","cli","glue","yaml","jsonlite",
+"tibble","ggplot2","ggtext","patchwork","readr","lubridate")
+.install_if_missing(pkgs)
+
+# --- 2) Directory registration (your structure) -----------------------------
+
+root <- here::here()
+fs::dir_create(fs::path(root, c("Code","Data","Results","Writing","Docs","Literature","public")))
+fs::dir_create(fs::path(root, c("Data/Raw","Data/Processed","Data/Private",
+"Results/Figures","Results/Tables")))
+cli::cli_alert_success("Checked/created top-level dirs under {.path {root}}")
+
+SEED <- 20251028L
+set.seed(SEED)
+
+cfg <- list(
+project = list(
+name    = "Value of Multiple OFE data",
+author  = "Jaeseok Hwang",
+seed    = SEED,
+created = as.character(Sys.time())
+),
+paths = list(
+root            = root,
+code            = here::here("Code"),
+data_raw        = here::here("Data/Raw"),
+data_processed  = here::here("Data/Processed"),
+results_figs    = here::here("Results/Figures"),
+results_tables  = here::here("Results/Tables"),
+public          = here::here("public")
+),
+analysis = list(
+y_var = "yield", n_var = "N_rate",
+id_cols = c("field_id","trial_id","strip_id","year"),
+keep_na_predictors = TRUE,
+do_central_moments = TRUE, do_raw_moments = TRUE,
+do_quantile_forest = TRUE, do_bayesian_gp = TRUE
+),
+viz = list(dpi = 300, width = 7, height = 4.5)
+)
+
+yaml::write_yaml(cfg, here::here("Code","config.yml"))
+jsonlite::write_json(cfg, here::here("Code","config.json"), pretty = TRUE, auto_unbox = TRUE)
+cli::cli_alert_success("Config written: {.file Code/config.yml} and {.file Code/config.json}")
+
+# --- 3) Helpers -------------------------------------------------------------
+
+theme_ils <- function(base_size = 12) {
+ggplot2::theme_minimal(base_size = base_size) +
+ggplot2::theme(
+plot.title = ggtext::element_markdown(face = "bold"),
+plot.subtitle = ggtext::element_markdown(),
+legend.position = "bottom",
+panel.grid.minor = element_blank()
+)
+}
+
+save_hero <- function(plot,
+path = fs::path(cfg$paths$public, "hero.png"),
+width = 8, height = 4.5, dpi = 220) {
+fs::dir_create(cfg$paths$public)
+ggplot2::ggsave(path, plot = plot, width = width, height = height, dpi = dpi, bg = "white")
+cli::cli_alert_success("Hero saved: {.file {path}}")
+invisible(path)
+}
+
+# --- 4) Smoke test plot -----------------------------------------------------
+
+df <- tibble::tibble(x = 1:20, y = x + rnorm(20, 0, 2))
+p <- ggplot(df, aes(x, y)) +
+geom_point(alpha = 0.8, color = "#13294B") +
+geom_smooth(method = "lm", se = FALSE, color = "#FF5A00") +
+labs(
+title = "Sanity check: scatter with OLS line",
+subtitle = "If you see this and hero.png in /public, setup works"
+) +
+theme_ils()
+
+print(p)
+save_hero(p)
+
+# --- 5) Write summary.md for website ---------------------------------------
+
+summary_md <- c(
+"# Multi-field OFE Yield–N Pipeline",
+"",
+"- Data: multi-field OFE (yield, N, SSURGO, DEM, weather)",
+"- Models: central/raw moments, Quantile Forests, Bayesian GP",
+"- Output: risk-adjusted EONR & full yield distributions",
+"",
+glue::glue("*Last updated: {format(Sys.time(), '%Y-%m-%d %H:%M %Z')}*")
+)
+writeLines(paste(summary_md, collapse = "\n"),
+fs::path(cfg$paths$public, "summary.md"))
+cli::cli_alert_success("Summary written: {.file {fs::path(cfg$paths$public,'summary.md')}}")
+
+cli::cli_h1("Setup complete ✓")
+cli::cli_alert_success("Next: run 1_Data_Processing.Rmd → 2_Bayesian_Analysis.Rmd → 3_Results_Figs_Tables.Rmd")
+
+```

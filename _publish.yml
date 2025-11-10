@@ -1,0 +1,15 @@
+project:
+  type: website
+  output-dir: publish
+
+format:
+  html:
+    toc: false
+    number-sections: false
+    theme: cosmo
+
+execute:
+  freeze: auto
+
+resources:
+  - publish

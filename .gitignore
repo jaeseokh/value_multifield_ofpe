@@ -1,9 +1,13 @@
-.Rproj.user
+.Rproj.user/
 .Rhistory
 .RData
 .Ruserdata
-Data/*
+renv/library/
+renv/staging/
 Code/Main/Anonymize_Naming.RMD
-Results/*
+Code/Main/N_unit_check.RMD
+
 Writing/*
 Literature/*
+
+# Results (ignore everything except main figure and table)

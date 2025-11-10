@@ -1,0 +1,45 @@
+---
+title: "Stage 1 — Outputs (Tables & Quick Visuals)"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+suppressPackageStartupMessages({ library(here); library(dplyr); library(readr); library(ggplot2); library(gt) })
+
+out_tbl <- here("Results","Tables","stage1_ensemble")
+out_fig <- here("Results","Figures","stage1_ensemble")
+out_data <- here("Data","Processed","stage1_ensemble")
+
+```
+
+
+
+
+```{r load, include=FALSE}
+
+metrics <- readr::read_csv(file.path(out_tbl, "ensemble_metrics.csv"), show_col_types = FALSE)
+metrics %>%
+gt::gt() %>%
+gt::fmt_number(columns = "rmse", decimals = 2) %>%
+gt::tab_header(title = "In-sample RMSE (sanity check)")
+
+```
+
+
+# Response curve
+
+```{r response curv, include=FALSE}
+
+img_path <- file.path(out_fig, "ensemble_curves.png")
+if (file.exists(img_path)) {
+knitr::include_graphics(img_path)
+} else {
+cat("No curve image found at: ", img_path)
+}
+
+```

@@ -19,24 +19,27 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: jaeseokh/jaeseokh.github.io
-          token: ${{ secrets.JAE_WEB_SECRET }}   # <-- matches your secret name
+          token: ${{ secrets.JAE_WEB_SECRET }}   # <-- your secret name
           path: site
 
       - name: Copy assets into website static dir
         run: |
           mkdir -p site/static/projects/value_multifield_ofpe
-          cp -r public/* site/static/projects/value_multifield_ofpe/ || true
+          if [ -d public ]; then
+            cp -r public/* site/static/projects/value_multifield_ofpe/ || true
+          fi
           ls -lah site/static/projects/value_multifield_ofpe || true
 
-      - name: Set git identity and push
+      - name: Commit and push changes to website
         working-directory: site
         env:
           PAT: ${{ secrets.JAE_WEB_SECRET }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # ensure pushes use PAT
+          # ensure push uses PAT:
           git remote set-url origin https://x-access-token:${PAT}@github.com/jaeseokh/jaeseokh.github.io.git
           git add static/projects/value_multifield_ofpe
           git commit -m "Update project assets from value_multifield_ofpe [skip ci]" || echo "No changes to commit"
+          # if your site default branch is master, change the next line to: git push origin master
           git push

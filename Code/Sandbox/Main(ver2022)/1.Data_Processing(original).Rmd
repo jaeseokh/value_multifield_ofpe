@@ -1,0 +1,326 @@
+---
+title: "1. Data Processing" 
+author: "Jaeseok Hwang" 
+date: "r Sys.Date()" 
+output:
+ html_document: default 
+ pdf_document: default
+ word_document: default
+---
+
+# PURPOSE
+
+- This R Markdown script executes the data processing phase of the project pipeline.
+
+- Its main objective is to take raw on-farm trial data and integrate it with various external
+  geospatial datasets to create a comprehensive, analysis-ready dataset for each field-year.
+
+- The key steps include:
+    1. Loading raw experimental data (yield, as-applied rates, field boundaries).
+    2. Fetching and processing non-experimental data layers, including:
+       - Topography (elevation, slope, aspect) from a DEM.
+       - Soil properties (sand, silt, clay content) from the SSURGO database.
+
+    3. Downloading and calculating in-season weather variables (precipitation, GDD, EDD) from Daymet.
+
+    4. Merging all experimental and non-experimental data into a single sf object for each trial.
+
+    5. Saving the final, processed data files, which will serve as the input for the analysis script (2.Data_Analysis.Rmd).
+
+
+## Knitr option
+
+```{r, cache = F, echo = F, results = "hide"}
+#####
+
+library(knitr)
+
+knitr::opts_chunk$set(
+  cache = FALSE,
+  echo = FALSE,
+  warning = FALSE,
+  cache.lazy = FALSE,
+  fig.retina = 6,
+  fig.height = 9,
+  fig.width = 9,
+  message = FALSE,
+  error = TRUE
+)
+
+options(knitr.duplicate.label = "allow")
+
+```
+
+#### Packages 
+
+```{r pacakages, cache = FALSE, results = "hide"}
+
+library(here)
+library(rmarkdown)
+library(jsonlite)
+library(parallel)
+library(bookdown)
+library(knitr)
+library(stringr)
+
+library(measurements)
+library(data.table)
+library(tidyverse)
+library(smoother)
+library(dplyr)
+library(tmap)
+
+library(sf)
+library(stars)
+library(raster)
+library(exactextractr)
+library(terra)
+library(spatialEco)
+library(elevatr)
+library(soilDB)
+library(FedData)
+library(daymetr)
+  
+
+```
+
+# Preparation
+
+```{r preparations, cache = T, results = "hide"}
+
+# Read the field parameter data 
+field_data <- jsonlite::fromJSON(
+ file.path(
+    here("Data", "Raw"),
+    "field_parameter.json"
+  ),
+  flatten = TRUE
+)%>%
+  data.table() 
+
+conv_table <- jsonlite::fromJSON(
+ file.path(
+    here("Data", "Raw"),
+    "nitrogen_conversion.json"
+  ),
+  flatten = TRUE
+)%>%
+  data.table() 
+
+
+# Read functions for data processing 
+source(here("Code","Main","0_Set_up.R"))
+source(here("Code","Functions","functions_processing.R"))
+
+```
+
+# Data Processing
+
+```{r data processing, echo = F, results = "hide"}
+
+# Read trial fields list ( corn, 102 fields data)
+
+ffy_id_data <- list.files(here("Data","Raw","exp_tb_data")) %>%
+ str_subset("_tb.rds") %>%
+   str_remove("_tb.rds")
+
+ffy_id_bdry <- list.files(here("Data","Raw","exp_bdry_data")) %>%
+ str_subset("_bdry.rds") %>%
+   str_remove("_bdry.rds")  
+
+
+
+# Check if ffy_id in the trial field list and boundary list are matched
+match(ffy_id_data,ffy_id_bdry)
+
+# Read Exp_field_data and process non-exp data on the experimental data
+# add weather information on the field parameter ( field specific experimental information)
+ 
+ # "15_1,2,3_2023" (10 ~12)  Out of State 
+ # "27_1_2023" (41)
+ # "9_1,2_2022" (100~101)
+
+ffy_id_dat <- ffy_id_data[!ffy_id_data %in% c("15_1_2023", "15_2_2023", "15_3_2023", "27_1_2023", "9_1_2022", "9_2_2022")]
+
+saveRDS(ffy_id_dat, here("Data","Processed","ffy_id_list.rds"))
+
+```
+
+```{r stage specified weather info, echo = F, results = "hide"}
+
+# --- Step 3: Load and Filter Initial Data Manifest ---
+
+date_info_raw <- readRDS(here("Data","Raw","date_product_info.rds"))
+
+setDT(date_info_raw)
+
+print(paste("Loaded raw date info with", nrow(date_info_raw), "rows."))
+
+# ** NEW: Filter date_info_raw to only include the valid ffy_ids from ffy_id_dat **
+date_info_filtered <- date_info_raw[ffy_id %in% ffy_id_dat]
+
+print(paste("Filtered date info to", nrow(date_info_filtered), "rows."))
+
+
+# Select and rename the main columns we'll be working with
+date_info <- date_info_filtered[, .(
+  ffy_id,
+  yield_time,
+  n_time,
+  s_time,
+  n_product,
+  s_product
+)]
+
+# --- Step 4: Process All Fields ---
+
+# Initialize the main list to store all processed data
+analysis_list <- list()
+cat(sprintf("Starting to process all %d fields from the manifest...\n", nrow(date_info)))
+
+for (i in seq_len(nrow(date_info))) {
+  current_ffy_id <- date_info$ffy_id[i]
+  timing_info <- copy(date_info[i])
+  cat(paste0("\nProcessing: ", current_ffy_id, "\n"))
+
+  # a) Load subplot-level data
+  subplot_file_path <- here("Data", "Processed", "Analysis_ready", paste0(current_ffy_id, "_merged_data.rds"))
+  if (!file.exists(subplot_file_path)) {
+    warning("  - Subplot data file not found. Setting list element to NULL.")
+    analysis_list[[current_ffy_id]] <- NULL
+    next
+  }
+
+  dat_sf <- readRDS(subplot_file_path)
+  dat_sf <- st_transform(dat_sf, 4326)
+  dat_sf_valid <- st_make_valid(dat_sf)
+
+  field_centroid <- st_centroid(st_make_valid(st_union(dat_sf_valid)))
+  centroid_coords <- st_coordinates(field_centroid)
+
+  subplot_centroids <- st_centroid(dat_sf_valid$geom)
+  subplot_coords <- st_coordinates(subplot_centroids)
+
+  dat_dt <- as.data.table(st_drop_geometry(dat_sf_valid))
+  dat_dt[, `:=`(lon = subplot_coords[, "X"], lat = subplot_coords[, "Y"])]
+
+  timing_info[, `:=`(centroid_lon = centroid_coords[, "X"], centroid_lat = centroid_coords[, "Y"])]
+
+  # b) Conditionally calculate timing features
+has_complete_dates <- !is.na(timing_info$s_time) && !is.na(timing_info$n_time) && !is.na(timing_info$yield_time)
+has_partial_dates  <-  is.na(timing_info$s_time) && !is.na(timing_info$n_time) && !is.na(timing_info$yield_time)
+
+stage_feature_names <- as.vector(outer(
+  c("precip","dry_days","max_dry_spell","heavy_rain_days","gdd","edd"),
+  paste0("_S",1:4), paste0)
+)
+
+postN_feature_names <- c(
+  # N -> harvest
+  "precip_N_to_yield","gdd_N_to_yield","edd_N_to_yield",
+  "dry_days_N_to_yield","max_dry_spell_N_to_yield","heavy_rain_days_N_to_yield",
+  # rolling post-N windows
+  paste0("precip_postN_d", c(7,15,30)),
+  paste0("heavy_rain_days_postN_d", c(7,15,30)),
+  paste0("gdd_postN_d", c(7,15,30)),
+  paste0("edd_postN_d", c(7,15,30)),
+  # antecedent pre-N windows
+  paste0("precip_preN_d", c(7,15,30)),
+  paste0("dry_days_preN_d", c(7,15,30)),
+  paste0("heavy_rain_days_preN_d", c(7,15,30))
+)
+
+nutrient_feature_names <- c("n_app_stage","precip_15_post_N","days_to_N_app")
+all_feature_names <- c(stage_feature_names, postN_feature_names, nutrient_feature_names)
+
+final_info <- copy(timing_info)
+
+if (has_complete_dates || has_partial_dates) {
+  yr <- if (!is.na(final_info$yield_time)) year(final_info$yield_time) else year(final_info$n_time)
+
+  daily_weather <- tryCatch({
+    daymetr::download_daymet(
+      lat = final_info$centroid_lat,
+      lon = final_info$centroid_lon,
+      start = yr, end = yr, internal = TRUE
+    )$data
+  }, error = function(e) NULL)
+
+  if (is.null(daily_weather)) {
+    warning("  - Daymet download failed. Setting timing features to NA.")
+    final_info[, (all_feature_names) := NA]
+  } else {
+    # (A) Post-N features (no s_time needed)
+    postN_feats <- compute_postN_features(
+      daily_weather,
+      final_info$n_time,
+      final_info$yield_time
+    )
+
+    # (B) Stage features (need s_time); if missing, set NA placeholders
+    if (has_complete_dates) {
+      stage_feats <- compute_stage_features(
+        daily_weather,
+        final_info$s_time,
+        final_info$n_time,
+        final_info$yield_time
+      )
+    } else {
+      stage_feats <- as.list(rep(NA_real_, length(stage_feature_names)))
+      names(stage_feats) <- stage_feature_names
+      stage_feats <- c(stage_feats, list(
+        n_app_stage      = NA_character_,
+        precip_15_post_N = NA_real_,
+        days_to_N_app    = NA_real_
+      ))
+    }
+
+    # (C) Legacy 15-day precip after N
+    precip_15_post_N_val <- NA_real_
+    if (!is.na(final_info$n_time)) {
+      n_doy <- yday(final_info$n_time)
+      win15 <- as.data.table(daily_weather)[yday > n_doy & yday <= (n_doy + 15)]
+      setnames(win15,
+               c("prcp..mm.day.","tmax..deg.c.","tmin..deg.c."),
+               c("prcp","tmax","tmin"), skip_absent = TRUE)
+      precip_15_post_N_val <- sum(win15$prcp, na.rm = TRUE)
+    }
+
+    # (D) Merge & assign
+    assign_list <- c(
+      stage_feats,
+      postN_feats,
+      list(precip_15_post_N = precip_15_post_N_val)
+    )
+
+    # Fill days_to_N_app if s_time exists (stage_feats left NA otherwise)
+    if (!is.na(final_info$n_time) && !is.na(final_info$s_time)) {
+      assign_list$days_to_N_app <- yday(final_info$n_time) - yday(final_info$s_time)
+    }
+
+    for (nm in names(assign_list)) {
+      final_info[, (nm) := assign_list[[nm]]]
+    }
+  }
+} else {
+  cat("  - Incomplete dates. All timing features will be NA.\n")
+  final_info[, (all_feature_names) := NA]
+}
+
+# d) Store (don’t forget this before the loop continues)
+analysis_list[[current_ffy_id]] <- list(
+  info = final_info,
+  data = dat_dt
+)
+
+}
+
+
+# --- Step 5: Save the Final, Comprehensive Data Object ---
+saveRDS(analysis_list, here("Data", "Processed", "analysis_data_list_full.rds"))
+
+print(paste("\nProcessing complete. Final list with", length(analysis_list), "elements saved."))
+
+
+
+```

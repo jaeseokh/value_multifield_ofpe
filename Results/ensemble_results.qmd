@@ -1,0 +1,1038 @@
+---
+title: "Leveraging Multi-Field On-Farm Experiment Data: Do Other Fields Experimental Data Make Positive Externalities"
+format: 
+  docx:
+    toc: false
+    number-sections: true
+    number-depth: 2
+    fig-cap-location: bottom
+    fig-align: center
+    tbl-cap-location: top
+    link-citations: true
+    reference-location: document
+    link-bibliography: true
+author:
+  - name: Jaeseok Hwang
+    corresponding: true
+    email: jaeseok2@illinois.edu
+    affiliations:
+      - University of Illinois at Urbana-Champaign
+keywords:
+  - OFPE
+  - Externality
+  - Yield Response
+date: "`r Sys.Date()`"
+abstract: |
+  On-farm precision experiments (OFPE) have become a widely adopted method for helping farmers better understand their fields’ spatial characteristics and associated yield response functions. While OFPE trials can significantly improve a farmer’s expected profit by enabling more accurate estimation of yield response to nitrogen, their high cost often limits adoption. This research explores the potential of leveraging OFPE data from multiple other fields to inform nitrogen decisions in fields where no such trials have been conducted—thereby generating a positive externality. However, rather than assuming the presence of such externalities, this paper critically evaluates the current stage of using aggregated OFPE data to support nitrogen decisions in non-trial fields. We employ a cross-validation framework to compare the net profits from estimated economically optimal nitrogen rates (EONR) derived from a field’s own OFPE data with those predicted using data from multiple other fields. The findings reveal that, under current data limitations, the information from other fields does not yet produce a reliable or profitable externality. These limitations are rooted in the insufficient spatial diversity, quality, and quantity of available data, particularly with respect to soil nitrogen availability and weather interactions. As such, we argue that while the idea of using OFPE data as a positive externality is promising, it remains premature. This paper emphasizes the importance of caution when using machine learning-based predictions on new fields, especially when field-specific yield response data are absent. We discuss what is required for this approach to become truly beneficial in the future, including more robust data collection, better representation of spatial variability, and improved modeling strategies that can account for heterogeneous field and weather conditions.
+
+bibliography: bibliography.bib
+csl: qje.csl
+---
+
+```{r}
+#| include: false
+
+library(knitr)
+opts_chunk$set(
+  fig.align = "center",
+  fig.retina = 5,
+  warning = FALSE,
+  message = FALSE,
+  cache = FALSE,
+  echo = FALSE
+)
+
+library(here)
+library(tidyverse)
+library(data.table)
+library(dplyr)
+library(gt)
+library(modelsummary)
+library(flextable)
+library(ggplot2)
+library(sf)
+library(patchwork)
+library(gt)
+library(gridExtra)
+library(grid)
+library(ggridges)
+library(officer)
+library(png)
+
+```
+
+```{r}
+#--- Read the Sources and Data ---#
+
+# Read functions for data processing 
+source(here("Code","Functions","functions_for_table_figure.R"))
+
+n_table <- readRDS(here("Data", "Processed", "Analysis_ready","n_table_anony.RDS"))
+dat_binded <- readRDS(here("Data", "Processed", "Analysis_ready","dat_binded.RDS"))
+info_binded <- readRDS(here("Data", "Processed", "Analysis_ready", "info_binded.rds"))
+result_tab_list <- readRDS(here("Data", "Processed", "Analysis_results", "result_tab_list.rds"))
+
+base_ffy <-n_table$ffy_id[which(n_table$N_base !=0)]
+
+dat_nozero <- dat_binded %>% filter( ffy_id  %in% base_ffy ) %>%
+           dplyr::select(yield,n_rate,elev,slope,aspect,tpi,clay,sand
+           ,silt,water_storage,prcp_t,gdd_t,edd_t,ffy_id)  # 72 field-year data
+
+bdat_nozero <- na.omit(dat_nozero)
+
+
+xgb_model_list <- readRDS(here("Data", "Processed","Analysis_results", "xgb_model_list_nozero.rds"))
+
+rf_model_list <- readRDS(here("Data", "Processed", "Analysis_results", "rf_model_list_nozero.rds"))
+
+
+
+
+
+```
+
+
+# Introduction
+
+On-farm experiments (OFEs) using randomized input allocation in small plots or strips have long been central to agricultural research, particularly for estimating crop yield responses to key inputs such as nitrogen (N). These small-plot trials help generate field-specific yield response functions but often fail to capture the spatial heterogeneity in soil and topographic characteristics across entire fields. This limitation can result in biased estimates of the Economic Optimum Nitrogen Rate (EONR), especially when field variability is ignored [@bullock2009value; @anselin2004spatial].
+
+Advances in precision agriculture have enabled a more scalable alternative: On-Farm Precision Experiments (OFPEs). These use GPS-guided machinery and grid-based experimental designs to conduct variable-rate trials across entire commercial fields [@bullock2019data; @gebbers2010precision]. OFPEs allow for real-world experimentation at operational scales and provide entire field data to estimate yield-N response functions with greater accuracy. However, this improvement comes at a cost. Designing OFPEs that test a full range of N rates—particularly suboptimal or extreme ones—can create risk for farmers, especially if low-N zones lead to temporary revenue losses [@de2023predicting]. Moreover, the underlying agronomic complexity of nitrogen response—shaped by interactions between applied N, inherent soil nitrogen availability, and highly variable weather—requires multi-year trials to generate robust yield N respons estimates from the OFPE. 
+
+Accurately estimating a field’s yield response to nitrogen thus demands data that reflect both spatial heterogeneity and temporal variability in weather conditions. Conducting such replicated OFPEs over several years is costly and logistically challenging. These barriers raise important questions about the broader utility of OFPE data: Can data from other fields' OFPEs be leveraged to support nitrogen decisions in fields where direct experimentation has not been conducted? If so, such an approach could generate a positive externality, allowing information generated by one farm to benefit others—particularly those who face practical or financial burdens in conducting their own trials. This is especially relevant for individual growers in the U.S. Corn Belt who manage large acreages but remain sensitive to the risks and costs associated with experimentation.
+
+This study explores the extent to which multi-field OFPE data can inform nitrogen management in non-trial fields using only available site-specific information—soil properties, topography, and weather conditions. Rather than simply estimating EONR directly, our focus is on evaluating how well predicted EONRs from other-field data (EONR_o) approximate the EONRs derived from a field’s own OFPE (EONR_d) in terms of profitability. EONR_d is treated as the benchmark because it is estimated ex post, using observed in-season weather and yield outcomes—reflecting the realized biological response in that season.
+
+To quantify this, we estimate net benefits by comparing the profit associated with applying EONR_o versus EONR_d. This allows us to assess not just prediction accuracy, but the practical economic value of relying on OFPE data from other fields. Importantly, we examine whether EONR_o predictions are (1) close in value to EONR_d, (2) economically robust under different input-output price scenarios, and (3) interpretable in terms of the biological interactions between nitrogen and weather at each field.
+
+Three machine learning regression models are used to predict EONR_o: Extreme Gradient Boosting (XGB), Random Forest (RF), and Causal Forest (CF). XGB is selected for its ability to handle large and complex datasets with regularization to prevent overfitting [@chen2016xgboost]. RF provides a flexible non-parametric approach to modeling non-linear and interaction effects while being relatively stable across subsamples [@athey2019generalized]. CF, designed to estimate heterogeneous treatment effects, is particularly well-suited to identifying spatially varying yield responses to nitrogen [@wager2018estimation].
+
+As a benchmark, the “true” EONR (EONR_d) for each field is estimated using a Generalized Additive Model (GAM) fitted to the field’s own OFPE data. The GAM flexibly models the non-linear yield response to nitrogen application by smoothing the relationship between yield and applied nitrogen rate. Using the fitted yield-N response function, we calculate the profit-maximizing nitrogen rate by combining it with observed in-season weather and market prices for corn and nitrogen. This ex-post EONR serves as the reference point against which predicted EONR_o values are evaluated. GAM models are especially suitable for this purpose as they allow for smooth, non-linear relationships between predictors and response variables without assuming a specific parametric form [@wood2017generalized].
+
+Our analysis does not aim to identify the “best” machine learning model for predicting nitrogen recommendations but rather to evaluate whether different models converge toward a consistent and economically meaningful estimate of the economically optimal nitrogen rate (EONR_o) for each field. In principle, if multiple methods yield similar recommendations, the prediction could be considered robust. However, the results clearly show that, at the current stage, the predicted EONR_o is, on average, substantially different from the benchmark EONR_d derived from each field’s own OFPE data. Furthermore, EONR_o estimates vary significantly across methods—Extreme Gradient Boosting (XGB), Random Forest (RF), and Causal Forest (CF)—revealing a lack of model agreement. This inconsistency makes it difficult to interpret any single EONR_o prediction as a reliable or actionable input for field-level decision-making.
+
+The underlying reason for this poor and unstable performance lies in the current limitations of the data used to train and generate these predictions. On the quantity side, the dataset consists of a relatively limited number of OFPE trials—spread across a modest number of fields and years—which restricts the ability of the models to learn and generalize the complex yield responses to nitrogen under diverse temporal and spatial weather conditions. A robust prediction system requires not only many more trials but also sufficient variability in weather across years and geography to capture the full range of nitrogen-weather interactions that affect crop response.
+
+On the quality side, the field-level information used to characterize soil and topography—key determinants of nitrogen response—is limited in resolution and precision. Soil characteristics are derived from the Soil Survey Geographic Database  database(SSURGO), a publicly available soil survey product, and topographic variables are extracted from a digital elevation model (DEM) with limited spatial resolution. While these data sources are widely used, they are not designed to reflect within-field variability with the granularity required to match the spatial scale of yield responses observed in OFPE data. Consequently, even when machine learning models attempt to condition predictions on field characteristics, the information available may be too coarse or too noisy to enable accurate inference.
+
+These limitations have tangible implications for prediction stability and interpretability. Not only do the EONR_o predictions vary substantially across models, but they also tend to shift in non-smooth ways as fertilizer or crop prices change, undermining their usefulness in economic optimization. Moreover, the predicted EONR_o often fails to reflect biologically plausible yield-N response patterns, particularly the interaction between nitrogen application and weather conditions, which are critical to field-level agronomic decisions.
+
+Rather than positioning multi-field OFPE data as an immediate substitute for on-field experimentation, this study provides a timely and critical evaluation of its current limitations. The findings underscore the importance of expanding both the scale and precision of data collection efforts if such data are to be leveraged to produce meaningful positive externalities in nitrogen management. Specifically, improving the spatial diversity of OFPE trials, collecting high-resolution soil and topographic data, and integrating more detailed weather measurements are essential steps toward enhancing the predictive value of multi-field experiments. Until such improvements are made, we caution against over-reliance on pooled OFPE data and emphasize the need for more careful interpretation of machine learning predictions in the context of site-specific nitrogen recommendations. By highlighting these data limitations and methodological uncertainties, this research contributes to the ongoing discussion on the potential and boundaries of data-sharing and collaborative experimentation in precision agriculture.
+
+
+
+
+# CONCEPTUAL FRAMEWORK
+
+# Introduction to Yield Response Modeling and Information Valuation
+
+Following @bullock2009value, crop yield $y$ is modeled as a function of three key factors: a manageable input vector $\mathbf{x}$, a field characteristic vector $\mathbf{c}$, and stochastic temporal variables $\mathbf{z}$:
+
+$$
+y = f(\mathbf{x}, \mathbf{c}, \mathbf{z})
+$$ {#eq-1}
+
+The vector $\mathbf{x}$ consists of all controllable inputs, such as seed, fertilizer, herbicides, and genetic hybrids, where farmers can decide on the application volumes ex-ante. Field characteristics $\mathbf{c}$ represent inherent and spatially dependent properties of the field, including soil type, organic matter content, soil electroconductivity, and topographic features. Temporal variables $\mathbf{z}$ include factors like precipitation, temperature, and pest infestation, which are stochastic and highly variable across time and space during the growing season.
+
+The function $y = f(\mathbf{x}, \mathbf{c}, \mathbf{z})$ is often referred to as “nature’s meta-response function.” This conceptual function describes the true process of yield response to all factors in nature. For a given field $i$, the field characteristic vector $\mathbf{c}_i$ is termed the field’s characteristic map. The site-specific yield response function for field $i$ is thus defined as $f_i(\mathbf{x}, \mathbf{c}_i, \mathbf{z})$, a slice of the meta-response function specific to $i$. Assuming $\mathbf{c}_i$ is fixed within field $i$, the yield response simplifies to $f_i(\mathbf{x}, \mathbf{z})$, and this function is presumed to describe yield response across the field. 
+
+Farmers aim to maximize their profit by optimizing input management. Under perfect information about the field-specific yield response function and future weather events, the farmer’s profit function is:
+
+$$
+\pi = \mathbf{p} \cdot f_i(\mathbf{x}, \mathbf{z}) - \mathbf{w} \cdot \mathbf{x}
+$$ {#eq-2}
+
+where $\mathbf{p}$ represents the crop market price, and $\mathbf{w}$ represents the input price (both assumed fixed).  
+
+To simplify the analysis, this study restricts the manageable input to nitrogen fertilizer ($N$) and assumes $\mathbf{z}$ represents in-season weather conditions. Farmers face two key sources of uncertainty when deciding on $N$, first, the weather uncertainty. Represented by the joint probability density function $h(\mathbf{z})$, which describes the likelihood of different weather events $\mathbf{z} \in Z$. While farmers know the climate distribution ($Z$), they cannot predict which specific weather event $\mathbf{z}$ will occur in the upcoming season.  The second is the uncertainty of the true yield response function.Farmers possess a subjective probability function $g$, which assigns probabilities to a set of potential yield response functions, conditional on available information. Let $\Omega = \{ f_i^1, f_i^2, \ldots, f_i^M \}$ represent the set of possible yield response functions, where the true function is $f_i^R \in \Omega$. Farmers' subjective probability on $\Omega$ depends on the quantity and quality of information ($\eta$) available, denoted as $g(f_i^m \mid \eta)$. Using @laffont1989economie 's approach, the subjective probability distribution converges toward the true yield response function as more accurate and comprehensive information becomes available. Farmers’ expected maximum profit, given their subjective beliefs, is expressed as:  
+
+$$
+E\left(\pi_i \mid \eta\right) \equiv \max_{N} \int_{z \in Z} \left\{ \sum_{m=1}^M \left[ \mathbf{p} \cdot f_i^m(\mathbf{x}, \mathbf{z}) - \mathbf{w} \cdot N \right] g\left(f_i^m \mid \eta\right) \right\} h(\mathbf{z}) \, d\mathbf{z}
+$$ {#eq-3}
+
+## On-Farm Precision Experiments and Information Valuation
+
+On-farm precision experiments (OFPE) provide farmers with valuable information about their fields’ characteristics and associated yield responses. By incorporating this information, farmers’ subjective probability function $g(f_i^m \mid \eta)$ converges toward the true function $f_i^R$, assigning a probability of one to $f_i^R$. Let $\eta^\prime$ and $\eta^{\prime\prime}$ represent information obtained through different methods (e.g., single-field versus multi-field OFPE data). If $E(\pi_i \mid \eta^{\prime\prime}) \geq E(\pi_i \mid \eta^\prime)$, $\eta^{\prime\prime}$ is considered superior information.  
+
+The net profit difference between information sets is given by:  
+
+$$
+\left| \left[E(\pi_i \mid \eta^{\prime\prime}) - E(\pi_i \mid \eta^\prime)\right] - \left[C(\eta^{\prime\prime}) - C(\eta^\prime)\right] \right|
+$$ {#eq-4}
+
+In this study, two information sets are considered:  
+- $\eta^\prime$: Information derived from single-field OFPE data.  
+- $\eta^{\prime\prime}$: Information derived from combined multi-field OFPE data.  
+
+The objective is to evaluate whether $\eta^{\prime\prime}$ provides as much value as $\eta^\prime$. If $\eta^{\prime\prime}$ satisfies this condition, it demonstrates the potential for positive externalities, where information from other fields benefits farmers without imposing additional costs.  
+
+This framework tests whether aggregated data from multiple OFPEs can substitute for single-field trials, reducing the burden on individual farmers while maintaining profitability and accuracy in decision-making.
+
+
+# METHOD
+
+## Datasets
+
+OFPEs are designed as full-field, variable-rate input trials that assign controllable inputs—such as nitrogen (N) and seed rate—using spatially independent designs. To avoid confounding effects from correlated field characteristics, this study follows the DIFM (Data-Intensive Farm Management) experimental protocol, which ensures that the two trial inputs (seed and nitrogen) are orthogonally applied across spatial blocks within each field [@lix2021design]. This design minimizes spatial correlation between inputs and unobserved field characteristics, allowing for credible estimation of input-specific yield response functions. An illustration of the field-level nitrogen application design used in the OFPE trials is shown in @fig-app_map. The figure demonstrates how input rates are spatially assigned in structured blocks, allowing for unbiased identification of yield responses to nitrogen.
+
+The experimental units in an OFPE are polygonal blocks within a field, each receiving a unique combination of input rates. These trials are implemented using GPS-enabled tractors with variable-rate technology. During the growing season, data on input applications and environmental conditions are collected in real time, and yield data are recorded at harvest. Following collection, raw data are processed using DIFM protocols [@edge2024processing], which include cleaning for spatial misalignment, outlier removal, and exclusion of transition zones where input rates shift between plots. Input and yield values are then aggregated at the block level using median values, and blocks with excessive deviation are removed to avoid contamination from spatial edge effects.
+
+Field-specific characteristics are added by overlaying each experimental polygon with spatial soil data from the SSURGO database (clay, sand, silt, and water storage) and topographic features derived from Digital Elevation Models (DEM), including slope, curvature, and elevation. Climate data—such as total in-season precipitation, growing degree days (GDD), and extreme degree days (EDD)—are retrieved from the Daymet weather dataset [@thornton2022daymet]. These additions allow us to account for both spatial and temporal sources of heterogeneity in the estimation of yield-N response functions.
+
+The full dataset includes 169 field-year OFPEs collected from 42 farms across eight Midwestern states between 2016 and 2023. After quality control, 72 field-year datasets from 25 farms were retained for this study.
+
+```{r fig-app_map, fig.cap="Input(N) application map by the designed pattern", fig.width=5, fig.height=8, out.width="60%"}
+
+knitr::include_graphics("/Users/jaeseokhwang/value_multifield_ofpe/Results/Figures/application_map.pdf")
+
+```
+
+@tbl-datsum summarizes the key variables across trial years, including the number of trials, total observations, average yield, nitrogen application rate, and climate variables. Yield is measured in bushels per acre ($bu/ac$), nitrogen in pounds per acre ($lbs/ac$), and climate factors reflect in-season (April–September) conditions. Climate metrics include total precipitation (inches), GDD (growing degree days), and EDD (extreme degree days), all expressed in $°F$.
+
+Each value in the table represents a mean across all observations in that year, with standard deviations shown in parentheses. For example, in 2018—when the largest number of trials (13) was conducted—the average yield was 235.5 $bu/ac$ with a standard deviation of 28.8, and the mean nitrogen rate was 177.3 $lbs/ac$. This variation across years reflects the diversity in both environmental conditions and input strategies across farms and seasons.
+
+The number of observations reflects the total number of block-level data points per year, not the number of farms or fields. Thus, the high observation counts in years like 2018 (39,325) reflect both greater field coverage and the fine-grained spatial resolution of the OFPE design.
+
+This summary helps contextualize the scale and variability of the dataset and motivates the need for robust modeling strategies that can accommodate spatial heterogeneity and temporal weather shocks.
+
+
+
+```{r tbl-datsum, tbl-cap : "Summary Statistics of Yield, Nitrogen, and Climate Variables by Year"}
+#| label: tbl-datsum
+#| tbl-cap: "Summary Statistics of Yield, Nitrogen, and Climate Variables by Year"
+
+dat_nozero[, c("farm", "field", "year") := tstrsplit(ffy_id, "_", fixed = TRUE)]
+
+dat_nozero[, ff_id := paste(farm, field, sep = "_")]
+
+summary_dat_stats <- dat_nozero %>%
+  group_by(year) %>%
+  summarise(
+    num_obs = n(),  # Total number of observations
+    num_trial = n_distinct(paste(farm, field)),  # Number of unique trials
+    yield_mean = round(mean(yield, na.rm = TRUE), 1),
+    yield_sd = round(sd(yield, na.rm = TRUE), 1),
+    nitrogen_mean = round(mean(n_rate, na.rm = TRUE), 1),
+    nitrogen_sd = round(sd(n_rate, na.rm = TRUE), 1),
+    prcp_t_mean = round(mean(prcp_t, na.rm = TRUE), 1),
+    prcp_t_sd = round(sd(prcp_t, na.rm = TRUE), 1),
+    gdd_t_mean = round(mean(gdd_t, na.rm = TRUE), 1),
+    gdd_t_sd = round(sd(gdd_t, na.rm = TRUE), 1),
+    edd_t_mean = round(mean(edd_t, na.rm = TRUE), 1),
+    edd_t_sd = round(sd(edd_t, na.rm = TRUE), 1)
+  )
+
+# Format mean ± standard deviation
+
+summary_dat_stat <- summary_dat_stats %>%
+  mutate(
+    yield = sprintf("%.1f\n(%.1f)", yield_mean, yield_sd),
+    nitrogen = sprintf("%.1f\n(%.1f)", nitrogen_mean, nitrogen_sd),
+    prcp_t = sprintf("%.1f\n(%.1f)", prcp_t_mean, prcp_t_sd),
+    gdd_t = sprintf("%.1f\n(%.1f)", gdd_t_mean, gdd_t_sd),
+    edd_t = sprintf("%.1f\n(%.1f)", edd_t_mean, edd_t_sd)
+  ) %>%
+  dplyr::select(year,  num_trial,num_obs, yield, nitrogen, prcp_t, gdd_t, edd_t)
+
+
+# Define standard border properties
+std_border <- fp_border(color = "black", width = 1)
+
+summary_dat_tab <- summary_dat_stat %>%
+  flextable() %>%
+  set_header_labels(
+    year = "Year",
+    num_trial = "# of Trials",
+    num_obs = "# of \n Observations",
+    yield = "Yield \n (bu/ac)",
+    nitrogen = "N \n (lbs/ac)",
+    prcp_t = " Precipitation \n (in)",
+    gdd_t = "GDD \n (°F)",
+    edd_t = "EDD \n (°F)"
+  ) %>%
+  add_header_row(
+    values = c("", "", "", "","", "Climate Factors \n (In Season total)"),
+    colwidths = c(1, 1, 1, 1, 1, 3)
+  ) %>%
+  merge_v(j = 1) %>%
+  align(align = "center", part = "all") %>%
+  fontsize(size = 9, part = "body") %>%  # Reduce font size for the body
+  fontsize(size = 10, part = "header") %>%  # Keep headers slightly larger
+  autofit() %>%
+  padding(padding = 3, part = "all") %>%
+  set_table_properties(layout = "fixed") %>%
+  width(j = 1, width = 0.4) %>%  # Adjust column widths manually
+  width(j = 2, width = 0.5) %>%
+  width(j = 3, width = 0.8) %>%
+  width(j = 4, width = 0.6) %>%
+  width(j = 5, width = 0.6) %>%
+   width(j = 6, width = 0.8) %>%
+  width(j = 7:8, width = 0.6) %>%
+   height(height = 0.7, part = "body") %>%
+  vline(j = c(3, 4), border = std_border, part = "all") %>%
+  vline(j = c(4, 5), border = std_border, part = "all") %>%
+  border_outer(border = std_border, part = "all") %>%
+  footnote(
+    i = 1, j = 6:8,
+    value = as_paragraph("Climate factors include in-season (April to September) total precipitation (inches), growing degree days (°F), and extreme degree days (°F) for each year"),
+    ref_symbols = "a",
+    part = "header",
+    inline = TRUE
+  ) %>%
+footnote(
+    i = 2, j = 3,
+    value = as_paragraph("The number of observations represents the total count of 'j' blocks across all fields in the trials conducted during that year. For example, in year 2018, there are 39,325 observations and 13 trials in a given year. This means the total number of data points is aggregated across all 13 field trials."),
+    ref_symbols = "b",
+    part = "header",
+    inline = TRUE
+  ) %>%
+ footnote(
+    i = 1, j = 4:8,
+    value = as_paragraph("All numeric values in columns 4 to 8 are presented as mean values with standard deviations in parentheses."),
+    ref_symbols = "c",
+    part = "body",
+    inline = TRUE
+  )
+
+
+summary_dat_tab
+
+
+```
+
+@fig-climate illustrates the annual distributions of total in-season precipitation (top panel) and accumulated growing degree days (GDD) (bottom panel) within the processed OFPE dataset. This visualization highlights the substantial climatic variability across different years, reflecting both spatial diversity from cross-sectionally distributed on-farm field trials and temporal variation across seven years of different climate events. The dataset captures a wide range of precipitation, GDD, and extreme degree days (EDD), demonstrating its strength in representing diverse weather conditions across multiple locations and years. This variability enhances the robustness of the analysis by allowing a comprehensive evaluation of yield responses under different environmental conditions.
+
+```{r fig-climate, fig.cap = "Distribution of Precipitation and Growing Degree Days (2016 to 2023)",fig.width=14, fig.height=10, out.width="100%"}
+
+dat_nozero <- dat_nozero %>%
+  separate(ffy_id, into = c("farm", "field", "year"), sep = "_", convert = TRUE)
+
+dat_stack <- dat_nozero %>%
+  select(year, prcp_t, gdd_t) %>%
+  mutate(year_f = as.factor(year))
+# Create the ridgeline plot
+
+
+prcp_dist <-ggplot(dat_stack, aes(x = prcp_t, y = year_f)) +
+  geom_density_ridges(scale = 1, alpha = 0.7) +
+  labs(
+    title = "Distribution of Total In-season Precipitation by Year",
+    x = "Precipitation(Inch)",
+    y = "Year"
+  ) +
+  theme_ridges() +
+  theme_minimal(base_size = 16) +
+  theme(
+    legend.position = 'none',
+    plot.title = element_text(size = 20, face = "bold"), 
+    axis.title = element_text(size = 20),
+    axis.text = element_text(size = 16), 
+    panel.grid.major.y = element_blank(),  # Remove major y gridlines
+    panel.grid.minor.y = element_blank(),  # Remove minor y gridlines
+    strip.text = element_text(size = 20),  # Adjust facet labels
+    panel.grid = element_line(color = "gray90")  # Light gridline
+  )
+
+gdd_dist <-ggplot(dat_stack, aes(x = gdd_t, y = year_f)) +
+  geom_density_ridges(fill='brown',scale = 1, alpha = 0.7) +
+  labs(
+    title = "Distribution of Accumulated In-season Growding Degree Days by Year",
+    x = "Precipitation(Inch)",
+    y = "Year"
+  ) +
+  theme_ridges() +
+  theme_minimal(base_size = 16) +
+  theme(
+    legend.position = 'none',
+    plot.title = element_text(size = 20, face = "bold"), 
+    axis.title = element_text(size = 20),
+    axis.text = element_text(size = 16), 
+    panel.grid.major.y = element_blank(),  # Remove major y gridlines
+    panel.grid.minor.y = element_blank(),  # Remove minor y gridlines
+    strip.text = element_text(size = 20),  # Adjust facet labels
+    panel.grid = element_line(color = "gray90")  # Light gridline
+  )
+
+prcp_dist / gdd_dist
+
+# ggsave(here("Results","Figures","prcp_dist.png"), plot = prcp_dist, width = 14, height = 14 )
+# ggsave(here("Results","Figures","gdd_dist.png"), plot = gdd_dist, width = 14, height = 14 )
+
+```
+
+## Regression
+
+### Estimating EONR from Single-Year Direct OFPE Data
+
+To determine the economically optimal nitrogen rate (EONR) for a given field, this study estimates the yield-nitrogen response function using field-specific data from a single year of On-Farm Precision Experimentation (OFPE). This estimated response function is treated as the realized (ex post) yield response, conditional on the observed weather, topography, and soil characteristics in that field-year.
+
+Following the conceptual framework in \eqref{eq-1}, we assume that yield is a function of nitrogen ($N$), seed rate ($SED$), and field-specific characteristics $\mathbf{c}_i$ observed during the growing season. To flexibly capture nonlinear relationships between yield and these covariates, we employ a Generalized Additive Model (GAM), which takes the following form:
+
+$$
+\begin{aligned}
+\hat{f}^{\text{GAM}}_{it}(\cdot) =\ 
+&\beta_0 + f_1(NTR_{jt}) + f_2(SED_{jt}) + f_3(SLP_{jt}) + f_4(ElV_{jt}) \\
+&+ f_5(ASP_{jt}) + f_6(TWI_{jt}) + f_7(CLY_{jt}) + f_8(SND_{jt}) \\
+&+ f_9(SLT_{jt}) + f_{10}(WST_{jt}) + \varepsilon_{jt}
+\end{aligned}
+$$ {#eq-5}
+
+In \eqref{eq-5}, $f_k(\cdot)$ are smooth functions estimated non-parametrically for each explanatory variable $k \in \{1, ..., 10\}$. This formulation enables the model to flexibly capture site-specific, nonlinear yield responses to nitrogen and other covariates, without imposing restrictive functional forms (@wood2017generalized;@gardner2021economic;@hegedus2023assessing).
+
+Once the yield function $\hat{f}^{\text{GAM}}_{it}(\cdot)$ is estimated, we calculate profit as a function of the nitrogen rate, using observed prices. Let $\bar{p}$ denote the average corn price and $\bar{w}$ the nitrogen cost per unit. The profit function is:
+
+$$
+\pi_{it}(NTR) = \bar{p} \cdot \hat{f}^{\text{GAM}}_{it}(NTR, X_{ijt}) - \bar{w} \cdot NTR
+$$ {#eq-6}
+
+Here, $X_{ijt}$ is a vector of the other covariates in \eqref{eq-5}. The economically optimal nitrogen rate derived directly from this field-year data is the rate that maximizes \eqref{eq-6}, denoted:
+
+$$
+EONR_d = \arg\max_{NTR} \ \pi_{it}(NTR)
+$$
+
+This benchmark EONR, $EONR_d$, reflects the “true” optimal decision for that field-year, given ex post yield and weather observations. It serves as the reference point against which out-of-sample predictions are compared.
+
+### Predicting EONR Using Multi-Field Data: Cross-Validation Approach
+
+To evaluate whether data from other fields can substitute for direct experimentation in generating nitrogen recommendations, we implement a leave-one-field-out cross-validation strategy. For each held-out field $i$, the data from that field are excluded from model training, and the remaining dataset, denoted as $\eta_{-i}$, is used to estimate a yield response function based on observed input and environmental variables.
+
+To model these responses using multi-field data, we rely on three machine learning approaches: Random Forest (RF), Causal Forest (CF), and Extreme Gradient Boosting (XGB). Each method is chosen for its unique strengths in capturing nonlinearity and heterogeneity across spatially distributed agricultural data. Random Forest is a flexible, non-parametric algorithm that constructs an ensemble of decision trees using bootstrap samples and randomized feature selection. This method is particularly well-suited for modeling complex interactions between nitrogen rates and field-level variables such as soil texture, elevation, and weather, without requiring prior specification of the functional form [@breiman2001random].
+
+Causal Forest, an extension of the Random Forest framework, is specifically designed to estimate heterogeneous treatment effects across observational units. In the context of nitrogen trials, it allows for estimation of site-specific marginal yield responses to nitrogen by leveraging differences across spatial blocks and environmental conditions [@wager2018estimation]. This makes CF a natural candidate for understanding how nitrogen efficacy varies depending on unobserved soil nitrogen availability or localized moisture retention.
+
+Extreme Gradient Boosting (XGB), in contrast, is a boosting algorithm that builds a strong predictive model by sequentially combining weak learners—typically regression trees—optimized with respect to a specified loss function. Its strength lies in capturing high-order interactions and variable importance through regularization and gradient-based optimization [@chen2016xgboost]. Due to its computational efficiency and predictive accuracy, XGB is particularly effective in high-dimensional agronomic datasets where variable interdependencies are expected to be strong and nonlinear.
+
+Each of these models yields a predicted yield response function:
+
+$$
+\hat{Y}_{ijt} = \hat{f}^{ML}(NTR_{ijt}, X_{ijt}), \quad \text{for } ML \in \{\text{RF}, \text{CF}, \text{XGB}\}
+$$
+
+This predicted yield function is then used to construct a profit function, using the same structure as in \eqref{eq-6}. From this, we derive the predicted economically optimal nitrogen rate:
+
+$$
+EONR_o = \arg\max_{NTR} \left[ \bar{p} \cdot \hat{f}^{ML}_{-i}(NTR, X_{ijt}) - \bar{w} \cdot NTR \right]
+$$
+
+We then compare the predicted $EONR_o$ to the benchmark $EONR_d$ by computing the estimated profits associated with each nitrogen rate. This comparison serves two purposes. First, it evaluates how closely the predicted $EONR_o$ approximates the benchmark $EONR_d$, which reflects the true profit-maximizing rate derived from the field’s own yield response function. This proximity serves as a measure of the prediction accuracy of the multi-field model. Second, it assesses the economic value of using $EONR_o$ by calculating the difference in profit outcomes between the two nitrogen rates. Specifically, we quantify the net revenue loss or gain from applying $EONR_o$ instead of $EONR_d$:
+
+$$
+\Delta \pi_i = \pi_{it}(EONR_o) - \pi_{it}(EONR_d)
+$$
+
+If the economic loss from applying $EONR_o$ is smaller than the cost of running a direct OFPE on that field, then using multi-field data may be economically justified. Conversely, if the predicted $EONR_o$ leads to significant foregone profit, the analysis reveals the limitations of relying on pooled data for individualized nitrogen decisions.
+
+This empirical framework directly tests the assumptions laid out in the conceptual model—namely, whether the multi-field information set $\eta^{\prime\prime}$ can approximate the value of field-specific information $\eta^\prime$, and whether it satisfies the conditions for generating positive externalities in nitrogen management decisions.
+
+
+# Results
+
+
+```{r tbl-result1  }
+
+#| label:  tbl-result1
+#| tbl-cap: " Mean Differences in Nitrogen Application Rates and Profit Between Directly Estimated EONR (EONR_d) and Predicted EONR (EONR_o) Across Trials (2016–2023)"
+
+
+# Loop through each data frame in the list (extract farm, field, year)
+for (i in seq_along(result_tab_list)) {
+  result_tab_list[[i]] <- result_tab_list[[i]] %>%
+    separate(ffy_id, into = c("farm", "field", "year"), sep = "_", convert = TRUE)
+}
+
+# Initialize an empty list to store the processed data
+result1_conv_data <- list()
+
+# Loop through each element in result_tab_list
+for (i in seq_along(result_tab_list)) {
+  # Extract the current element
+  current_element <- result_tab_list[[i]]
+  
+  # Extract farm, field, and year from the current element
+  farm <- current_element$farm
+  field <- current_element$field
+  year <- current_element$year
+  
+  # Ensure eonr_tab is a data frame
+  eonr_tab <- as.data.frame(current_element$eonr_tab)
+  
+  # Check if 'year' column exists in eonr_tab
+  if (!"year" %in% colnames(eonr_tab)) {
+    stop("The 'year' column is missing in eonr_tab.")
+  }
+  
+  # Extract the relevant row from eonr_tab where the year matches
+  eonr_row <- eonr_tab %>%
+    filter(year == !!year)
+  
+  # Ensure eonr_row is not empty
+  if (nrow(eonr_row) == 0) {
+    stop(paste("No matching year found in eonr_tab for farm:", farm, "field:", field, "year:", year))
+  }
+  
+  # Compute the differences
+  ofpe_n <- eonr_row$ofpe_n
+  ofpe_p <- eonr_row$ofpe_p
+  xgb_n_dif <- eonr_row$ofpe_n - eonr_row$xgb_n
+  rf_n_dif <- eonr_row$ofpe_n - eonr_row$rf_n
+  cf_n_dif <- eonr_row$ofpe_n - eonr_row$cf_n
+  xgb_p_dif <- abs(eonr_row$ofpe_p - eonr_row$xgb_p)
+  rf_p_dif <- abs(eonr_row$ofpe_p - eonr_row$rf_p)
+  cf_p_dif <- abs(eonr_row$ofpe_p - eonr_row$cf_p)
+  
+  # Create a data frame with the computed values
+  df <- data.frame(
+    year = year,
+    farm = farm,
+    field = field,
+    OFPE_n = ofpe_n,
+    OFPE_P = ofpe_p,
+    XGB_n = xgb_n_dif,
+    RF_n = rf_n_dif,
+    CF_n = cf_n_dif,
+    XGB_p = xgb_p_dif,
+    RF_p = rf_p_dif,
+    CF_p = cf_p_dif
+  )
+  
+  # Append the data frame to the list
+  result1_conv_data[[i]] <- df
+}
+
+# Combine all data frames into one
+result1_comb <- bind_rows(result1_conv_data)
+
+colnames(result1_comb) <- tolower(colnames(result1_comb))
+
+summary_stats_result1 <- result1_comb %>%
+  group_by(year) %>%
+  dplyr::summarise(
+    num_trial = n_distinct(paste(farm, field)),
+    ofpe_n_mean = round(mean(abs(ofpe_n), na.rm = TRUE), 1),
+    ofpe_n_sd = round(sd(ofpe_n, na.rm = TRUE), 1),
+    ofpe_p_mean = round(mean(abs(ofpe_p), na.rm = TRUE), 1),
+    ofpe_p_sd = round(sd(ofpe_p, na.rm = TRUE), 1),
+    xgb_n_mean = round(mean(abs(xgb_n), na.rm = TRUE), 1),
+    xgb_n_sd = round(sd(xgb_n, na.rm = TRUE), 1),
+    rf_n_mean = round(mean(abs(rf_n), na.rm = TRUE), 1),
+    rf_n_sd = round(sd(rf_n, na.rm = TRUE), 1),
+    cf_n_mean = round(mean(abs(cf_n), na.rm = TRUE), 1),
+    cf_n_sd = round(sd(cf_n, na.rm = TRUE), 1),
+    xgb_p_mean = round(mean(xgb_p, na.rm = TRUE), 1),
+    xgb_p_sd = round(sd(xgb_p, na.rm = TRUE), 1),
+    rf_p_mean = round(mean(rf_p, na.rm = TRUE), 1),
+    rf_p_sd = round(sd(rf_p, na.rm = TRUE), 1),
+    cf_p_mean = round(mean(cf_p, na.rm = TRUE), 1),
+    cf_p_sd = round(sd(cf_p, na.rm = TRUE), 1)
+  )
+
+summary_stats_result1 <- summary_stats_result1 %>%
+  mutate(
+    ofpe_n = sprintf("%.1f\n(%.1f)", ofpe_n_mean, ofpe_n_sd),
+    xgb_n = sprintf("%.1f\n(%.1f)", xgb_n_mean, xgb_n_sd),
+    rf_n = sprintf("%.1f\n(%.1f)", rf_n_mean, rf_n_sd),
+    cf_n = sprintf("%.1f\n(%.1f)", cf_n_mean, cf_n_sd),
+    ofpe_p = sprintf("%.1f\n(%.1f)", ofpe_p_mean, ofpe_p_sd),
+    xgb_p = sprintf("%.1f\n(%.1f)", xgb_p_mean, xgb_p_sd),
+    rf_p = sprintf("%.1f\n(%.1f)", rf_p_mean, rf_p_sd),
+    cf_p = sprintf("%.1f\n(%.1f)", cf_p_mean, cf_p_sd)
+  ) %>%
+ dplyr::select(year, num_trial, ofpe_n, xgb_n, rf_n, cf_n,ofpe_p, xgb_p, rf_p, cf_p)
+
+# Define standard border properties
+std_border <- fp_border(color = "black", width = 1)
+
+
+# summary table of result1
+summary_tab_result1 <- summary_stats_result1 %>%
+  flextable() %>%
+  set_header_labels(
+    year = "Year",
+    num_trial = "# of Trials",
+   ofpe_n = "EONR_d",
+    xgb_n = "XGB",
+    rf_n = "RF",
+    cf_n = "CF",
+    ofpe_p = "EONR_d",
+    xgb_p = "XGB",
+    rf_p = "RF",
+    cf_p = "CF"
+  ) %>%
+  add_header_row(
+    values = c("", "", "N\n(lbs/ac)", "Difference in N \n (lbs/ac)", "Profit\n($/ac)", "Difference in Profit ($/ac)"),
+    colwidths = c(1, 1, 1, 3, 1, 3)
+  ) %>%
+  merge_v(j = 1) %>%
+  align(align = "center", part = "all") %>%
+  fontsize(size = 9, part = "body") %>%  # Reduce font size for the body
+  fontsize(size = 10, part = "header") %>%  # Keep headers slightly larger
+  autofit() %>%
+  padding(padding = 3, part = "all") %>%
+  set_table_properties(layout = "fixed") %>%
+  width(j = 1, width = 0.4) %>%  # Adjust column widths manually
+  width(j = 2, width = 0.4) %>%
+  width(j = 3, width = 0.7) %>%
+  width(j = 4:6, width = 0.5) %>%
+  width(j = 7, width = 0.7) %>%
+  width(j = 8:10, width = 0.5) %>%
+  vline(j = c(2, 3), border = std_border, part = "all") %>%
+  vline(j = c(3, 6), border = std_border, part = "all") %>%
+  vline(j = c(7, 10), border = std_border, part = "all") %>%
+  border_outer(border = std_border, part = "all") %>%
+  footnote(
+    i = 1, j = 3,
+    value = as_paragraph(
+        "EONR", as_sub("d"),
+        " represents the estimated Economically Optimal Nitrogen Rate (EONR) derived directly from On-Farm Precision Experimentation (OFPE) data."
+    ),
+    ref_symbols = "a",
+    part = "header",
+    inline = TRUE
+) %>%
+footnote(
+    i = 1, j = 4:6,
+    value = as_paragraph(
+        "Columns 4 to 6 display the differences in nitrogen application rates between ", 
+        "EONR", as_sub("d"), 
+        " and ", 
+        "EONR", as_sub("o"), 
+        ", where ", 
+        "EONR", as_sub("o"), 
+        " is predicted by integrating data from other fields using the specified methods."
+    ),
+    ref_symbols = "b",
+    part = "header",
+    inline = TRUE
+) %>%
+footnote(
+    i = 1, j = 8:10,
+    value = as_paragraph(
+        "Columns 8 to 10 present the differences in profit between ", 
+        "EONR", as_sub("d"), 
+        " and ", 
+        "EONR", as_sub("o"), 
+        " for each method."
+    ),
+    ref_symbols = "c",
+    part = "header",
+    inline = TRUE
+) %>%
+footnote(
+    i = 1, j = 3,
+    value = as_paragraph(
+        "Values within parentheses indicate the standard deviations associated with each estimate."
+    ),
+    ref_symbols = "d",
+    part = "body",
+    inline = TRUE
+)
+
+
+# Display the flextable
+summary_tab_result1
+
+# Save flextable as an HTML file first
+#save_as_image(summary_tab_result1, path =here("Results","Figures","summary_tab_result1.png"))
+
+```
+
+​@tbl-result1 presents the mean and standard deviation of the estimated Economically Optimal Nitrogen Rate ($EONR_d$) for each trial year from 2016 to 2023, alongside the differences with the predicted $EONR_o$ values obtained from machine learning methods—Extreme Gradient Boosting (XGB), Random Forest (RF), and Causal Forest (CF). The differences in both nitrogen rates and profits are computed based on realized prices from USDA (@usda_fertilizer_prices) and DTN/Progressive Farmer (@dtnpf_fertilizer_prices). These estimates reflect the observed in-season weather conditions, making $EONR_d$ a meaningful ex-post benchmark for evaluating the performance of predictions trained on data from other fields.
+
+​@tbl-result1 demonstrates substantial annual variability in $EONR_d$, ranging from 158.6 lbs/ac in 2023 to 252.4 lbs/ac in 2019, with notable within-year dispersion. The differences between $EONR_d$ and $EONR_o$ are considerable: the average deviation in nitrogen recommendation exceeds 40 lbs/ac for RF and CF in most years, and the associated profit gaps average over \$20/ac across methods. Compared to the estimated net benefit of \$2.19/ac from adopting a direct OFPE-generated EONR instead of conventional rates (@bullock2019economic), the negative margins from $EONR_o$ highlight a significant performance gap.
+
+According to @bullock2019economic, the net benefit of applying the estimated EONR from a single-year OFPE instead of the farmer's conventional practice N rate, $N_{sq}$, is \$2.19 per acre. A \$23.16 per acre difference suggests that the net benefit of applying the estimated EONR_o is negative. This implies that farmers may earn less revenue when making nitrogen decisions based on data from multiple other field experiments. These findings indicate that information from other fields may not provide value for specific managed fields.​Additionally, in fields with biennial consecutive OFPE trials, net revenue differences varied across trial years. The estimated $EONR_d$ also varied by regression method, and in most trials, net revenue differences were inconsistent across methods. Therefore, the value of information from other fields, $\eta_{-i}$, is not consistent. 
+
+
+@fig-yield_rep illustrates the yield response functions across three biannual trial years in two selected fields. Each panel shows the predicted yield response to nitrogen using four different estimation approaches: direct OFPE-based GAM (green), XGB (purple), RF (red), and CF (blue). The yield curves reveal that machine learning predictions, even when using the same explanatory variables, frequently fail to approximate the benchmark yield-N response curve derived from in-field experimentation. Across all panels, yield responses vary not only between methods but also across years within the same field. This confirms the importance of capturing interannual weather effects, as suggested in prior studies on weather-sensitive agronomic modeling (@jin2019much; @tremblay2012corn). In many cases, XGB and RF produce flatter or highly skewed response functions, while CF tends to overfit or underestimate yield variability. The deviation in curve shape reflects a lack of biological interpretability and undermines the credibility of model-based nitrogen prescriptions in applied settings.
+
+```{r fig-yield_rep, fig.cap=" Comparison of estimated yield response to nitrogen application between direct on-farm precision experimentation (OFPE) and predictions based on data from other fields using various regression methods", fig.width=16, fig.height=20, out.width="100%"}
+ 
+  ffy_df <- tibble(ffy = base_ffy)
+
+ rep_3trial <- ffy_df  %>%
+  separate(ffy, into = c("farm", "field", "year"), sep = "_", convert = TRUE) %>%
+  group_by(farm, field) %>%
+  filter(n_distinct(year) > 2) %>%
+  ungroup() %>%
+  filter((farm == 23 & field == 3) | (farm == 28 & field == 5)) %>%  # Filter specific cases
+  unite(col = "ffy", farm, field, year, sep = "_", remove = FALSE)
+  
+  rep3_rows <-match(rep_3trial$ffy ,ffy_df$ffy)
+
+ # Extract and combine data from specified rows
+  combined_data <- map_dfr(rep3_rows, function(i) {
+   data <- result_tab_list[[i]]
+   eval_comb <- data$eval_comb[[1]]
+ 
+  
+
+  # Calculate profit for each method
+  eval_comb <- eval_comb %>%
+    mutate(
+      farm = data$farm,
+      field = data$field,
+      year = data$year
+    ) %>%
+    dplyr::select(ofpe,xgb,rf,cf,n_rate,farm,field,year)
+
+  return(eval_comb)
+})
+
+
+long_data <- combined_data %>%
+  pivot_longer(
+    cols = starts_with("ofpe"):starts_with("cf"),
+    names_to = "method",
+    values_to = "yield"
+  )
+
+long_data$method <- factor(long_data$method, levels = c("cf", "ofpe", "rf", "xgb"))
+
+
+plots <- list()
+unique_farms_fields <- unique(long_data[, c("farm", "field")])
+
+for (i in 1:nrow(unique_farms_fields)) {
+  farm_i <- unique_farms_fields$farm[i]
+  field_i <- unique_farms_fields$field[i]
+  data_i <- subset(long_data, farm == farm_i & field == field_i)
+
+  # Determine the range for n_rate and yield
+  x_min <- min(data_i$n_rate, na.rm = TRUE)
+  x_max <- max(data_i$n_rate, na.rm = TRUE)
+  y_min <- min(data_i$yield, na.rm = TRUE)
+  y_max <- max(data_i$yield, na.rm = TRUE)
+
+  p <- ggplot(data_i, aes(x = n_rate, y = yield, color = method)) +
+    geom_line(size = 1.1) +  # Make lines slightly thicker for better visibility
+    facet_wrap(~ year, ncol = 3, scales = "free_y") +
+    labs(
+      title = paste("Farm:", farm_i, "Field:", field_i),
+      x = "Nitrogen Rate (lbs/ac)",
+      y = "Yield (bu/ac)",
+      color = "Method"
+    ) +
+    scale_color_manual(
+      values = c("cf" = "blue", "ofpe" = "green", "rf" = "red", "xgb" = "purple"),
+      labels = c("CF", "OFPE", "RF", "XGB")
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  #  title font size and center align
+      axis.title.x = element_text(size = 16),  # x-axis label font size
+      axis.title.y = element_text(size = 16),  #  y-axis label font size
+      axis.text.x = element_text(size = 16),  # x-axis tick font size
+      axis.text.y = element_text(size = 16),  #  y-axis tick font size
+      strip.text = element_text(size = 16, face = "bold"),  # strip (year) tick font size
+      legend.position = "bottom",  # Move legend to the bottom
+      legend.text = element_text(size = 16),  # Increase legend text font size
+      legend.title = element_text(size = 16, face = "bold"),  # Increase legend title font size
+       plot.margin = margin(t = 20, b = 20)  # Add vertical spacing between stacked plots
+ 
+    )
+
+  plots[[i]] <- p
+}
+
+# Arrange the plots and share a single legend
+grid.arrange(grobs = plots, ncol = 1)
+
+###########
+
+
+```
+
+
+@tbl-eonrselected reports field-level comparisons of estimated EONRs and profits across three repeated trials in each of the selected fields. These repeated trials offer a unique opportunity to evaluate how predictions from $EONR_o$ perform across years and estimation methods when applied to the same location. The data confirm that $EONR_o$ does not consistently replicate the $EONR_d$ values, even when site characteristics remain the same. For example, Farm 28, Field 5 in 2022 shows that $EONR_d$ reaches 190.2 lbs/ac while XGB suggests a rate of 269.4 lbs/ac. The corresponding profits differ by more than \$50/ac. This pattern is echoed in other trial years, with each machine learning method offering divergent prescriptions and economic outcomes. These inconsistencies cast doubt on the external validity of model-based nitrogen recommendations in the absence of direct OFPE data.
+
+```{r tbl-eonrselected ,tbl.cap = "Estimated EONR and Profit at EONR by regression Method (for the selected fields) ", cache = TRUE }
+
+#| label:  tbl-eonr-selected
+#| tbl-cap: "Estimated EONR and Profit at EONR by regression Method (for the selected fields) "
+
+#  ffy_df <- tibble(ffy = base_ffy)
+
+#  rep_3trial <- ffy_df  %>%
+#   separate(ffy, into = c("farm", "field", "year"), sep = "_", convert = TRUE) %>%
+#   group_by(farm, field) %>%
+#   filter(n_distinct(year) > 2) %>%
+#   ungroup() %>%
+#   filter((farm == 23 & field == 3) | (farm == 28 & field == 5)) %>%  # Filter specific cases
+#   unite(col = "ffy", farm, field, year, sep = "_", remove = FALSE)
+  
+#   rep3_rows <-match(rep_3trial$ffy ,ffy_df$ffy)
+
+
+
+# eonr_info_table <- map_dfr(rep3_rows, function(i) {
+#   data <- result_tab_list[[i]]
+
+#   # Ensure 'ffy_id' exists in data
+#   if (!"ffy_id" %in% names(data)) {
+#     warning(paste("Skipping index", i, "because 'ffy_id' is missing."))
+#     return(NULL)
+#   }
+
+#   # Find corresponding row in rep_3trial that matches ffy_id
+#   matching_row <- rep_3trial %>% filter(ffy == data$ffy_id)
+
+#   # Ensure we found a match
+#   if (nrow(matching_row) == 0) {
+#     warning(paste("Skipping index", i, "because no matching 'ffy' found in rep_3trial."))
+#     return(NULL)
+#   }
+
+#   # Extract the correct year
+#   selected_year <- matching_row$year
+
+#   # Ensure 'eonr_tab' exists in data
+#   if (!"eonr_tab" %in% names(data)) {
+#     warning(paste("Skipping index", i, "because 'eonr_tab' is missing."))
+#     return(NULL)
+#   }
+
+#   # Extract eonr_tab[[1]]
+#   eonr_tab <- data$eonr_tab[[1]]
+
+#   # Ensure 'year' exists in eonr_tab
+#   if (!"year" %in% names(eonr_tab)) {
+#     warning(paste("Skipping index", i, "because 'year' column is missing in eonr_tab."))
+#     return(NULL)
+#   }
+
+#   # Select the row where year matches selected_year
+#   eonr_info <- eonr_tab %>% filter(year == selected_year)
+
+#   # Ensure we found a match
+#   if (nrow(eonr_info) == 0) {
+#     warning(paste("Skipping index", i, "because no matching year found in eonr_tab."))
+#     return(NULL)
+#   }
+
+#   # Add ffy_id, farm, and field for reference
+#   eonr_info <- eonr_info %>%
+#     mutate(ffy_id = data$ffy_id, farm = matching_row$farm, field = matching_row$field)
+
+#   return(eonr_info)
+# })
+
+# setDT(eonr_info_table)  # Convert to data.table if it's not already
+
+# eonr_info_table <- eonr_info_table[order(farm, field, year), 
+#                                    .(farm, field, year, ofpe_n, xgb_n, rf_n, cf_n, ofpe_p, xgb_p, rf_p, cf_p)]
+
+
+# saveRDS(eonr_info_table, here("Results/Tables/eonr_info_table.rds"))
+eonr_info_table <- readRDS(here("Results/Tables/eonr_info_table.rds"))
+
+
+# Define standard border
+std_border <- fp_border(color = "black", width = 1)
+
+# Create Flextable
+eonr_flextable <- eonr_info_table %>%
+  flextable() %>%
+  set_header_labels(
+    farm = "Farm",
+    field = "Field",
+    year = "Year",
+    ofpe_n = "OFPE",
+    xgb_n = "XGB",
+    rf_n = "RF",
+    cf_n = "CF",
+    ofpe_p = "OFPE",
+    xgb_p = "XGB",
+    rf_p = "RF",
+    cf_p = "CF"
+  ) %>%
+  add_header_row(
+    values = c("", "", "", "Estimated EONR by \n (lbs/ac)", "Estimated Profit at EONR by \n ($/ac)"),
+    colwidths = c(1, 1, 1, 4, 4)
+  ) %>%
+  align(align = "center", part = "all") %>%
+  fontsize(size = 10, part = "body") %>%
+  fontsize(size = 11, part = "header") %>%
+  autofit() %>%
+  width(j = 1, width = 0.4) %>%  # Adjust column widths manually
+  width(j = 2, width = 0.4) %>%
+  width(j = 3, width = 0.5) %>%
+  width(j = 4:7, width = 0.5) %>%
+  width(j = 8:11, width = 0.5) %>%
+   height(height = 0.7, part = "body") %>%
+  # Add horizontal border after the 3rd row
+  border(i = 3, border.bottom = std_border, part = "body") %>%
+  # Add vertical border between columns 4 & 5, and columns 7 & 8
+  vline(j = 3, border = std_border, part = "all") %>%
+  vline(j = 7, border = std_border, part = "all") %>%
+  
+  # Add outer border
+  border_outer(border = std_border, part = "all")
+
+# Display Flextable
+eonr_flextable
+
+
+
+```
+
+Notably, estimated profit differences are highly variable when the input and output price ratio changes. @fig-eonr_by_price  demonstrates the instability of the estimated $EONR_o$ by XGB and CF as input (N) prices fluctuate. To understand the factors contributing to this instability, 
+
+```{r fig-eonr_by_price, fig.cap="Paths of estimated true EONR and predicted EONR by method under the variable N prices scenario.", fig.width=16, fig.height=20, out.width="100%"}
+
+ n_by_price <- map_dfr(rep3_rows, function(i) {
+   data <- result_tab_list[[i]]
+   eonr_tab <- data$eonr_tab[[1]]
+
+  # Calculate profit for each method
+  eonr_tab <-  eonr_tab %>%
+    mutate(
+      p_ratio = nitrogen/corn,
+       farm = data$farm,
+      field = data$field,
+      year = data$year
+    ) %>%
+    dplyr::select(p_ratio,ofpe_n,xgb_n,rf_n,cf_n,farm,field,year)
+
+  return(eonr_tab)
+})
+
+
+  # Convert to long format
+long_n_by_price <- n_by_price %>%
+  pivot_longer(
+    cols = c(ofpe_n, xgb_n, rf_n, cf_n),
+    names_to = "method",
+    values_to = "eonr"
+  )
+
+# Ensure method is a factor with correct order
+long_n_by_price$method <- factor(long_n_by_price$method, levels = c("cf_n", "ofpe_n", "rf_n", "xgb_n"))
+
+plots2 <- list()
+unique_farms_fields <- unique(long_n_by_price[, c("farm", "field")])
+
+
+for (i in 1:nrow(unique_farms_fields)) {
+  farm_i <- unique_farms_fields$farm[i]
+  field_i <- unique_farms_fields$field[i]
+  data_i <- subset(long_n_by_price, farm == farm_i & field == field_i)
+
+  # Determine x and y axis limits
+  x_min <- min(data_i$p_ratio, na.rm = TRUE)
+  x_max <- max(data_i$p_ratio, na.rm = TRUE)
+  y_min <- min(data_i$eonr, na.rm = TRUE)
+  y_max <- max(data_i$eonr, na.rm = TRUE)
+
+p <- ggplot(data_i, aes(x = p_ratio, y = eonr, color = method, linetype = method)) +
+  geom_line(size = 2, alpha = 0.7) +  # Increase line width, add transparency
+  facet_wrap(~ year, ncol = 3, scales = "free_y") + # Maintain 3 columns for years
+  labs(
+    title = paste("Farm:", farm_i, "Field:", field_i),
+    x = "Price Ratio (N/Corn)",
+    y = "EONR (lbs/ac)",
+    color = "Method",
+    linetype = "Method"  # Add linetype to the legend
+  ) +
+  scale_color_manual(
+    values = c("cf_n" = "blue", "ofpe_n" = "green", "rf_n" = "red", "xgb_n" = "purple"),
+    labels = c("CF", "OFPE", "RF", "XGB")
+  ) +
+  scale_linetype_manual(
+    values = c("cf_n" = "solid", "ofpe_n" = "dashed", "rf_n" = "dotted", "xgb_n" = "dotdash"),
+    labels = c("CF", "OFPE", "RF", "XGB")
+  ) +
+  theme_minimal() +
+  coord_cartesian(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) +
+  theme(
+    plot.title = element_text(size = 20, face = "bold", hjust = 0.5),  # Title font size and center align
+    axis.title.x = element_text(size = 18),  # X-axis label font size
+    axis.title.y = element_text(size = 18),  # Y-axis label font size
+    axis.text.x = element_text(size = 18),  # X-axis tick font size
+    axis.text.y = element_text(size = 18),  # Y-axis tick font size
+    strip.text = element_text(size = 18, face = "bold"),  # Strip (year) tick font size
+    legend.position = "bottom",  # Move legend to the bottom
+    legend.text = element_text(size = 18),  # Increase legend text font size
+    legend.title = element_text(size = 18, face = "bold"),  # Increase legend title font size
+    plot.margin = margin(t = 20, b = 20)  # Add vertical spacing between stacked plots
+  )
+
+  plots2[[i]] <- p
+}
+
+
+do.call(grid.arrange, c(plots2, ncol = 1)) 
+```
+
+
+The robustness of $EONR_o$ under variable price scenarios is tested by evaluating how EONR changes with the nitrogen-to-corn price ratio. @fig-eonr_by_price displays the response of each estimation method to shifts in this price ratio. A robust recommendation system would adjust gradually and predictably to these economic changes, allowing farmers to optimize fertilizer application in real-time. However, the @fig-eonr_by_price reveals that XGB and CF predictions are highly sensitive to price ratio fluctuations, often producing sharp discontinuities in EONR recommendations. These abrupt changes—absent in the OFPE-based benchmark—suggest that $EONR_o$ lacks the economic smoothness and interpretability required for real-world applications. This echoes prior critiques of using machine learning in agronomic contexts without sufficient biological constraint (@de2023predicting; @gardner2021economic). The implication is clear: while model-based approaches may perform well in cross-validation metrics, they often lack decision-making utility in applied nitrogen management. In contrast, the $EONR_d$ derived from OFPE trials provides both agronomic realism and economic stability, even when prices change.
+
+
+Overall, these results reaffirm the findings from the conceptual framework: current multi-field learning approaches using OFPE data cannot reliably substitute for direct in-field experimentation. The main limitation lies in both the quantity and quality of data used for training. On the quantity side, the data includes only 72 usable field-year observations across 25 farms, spanning eight U.S. Midwest states. This coverage is insufficient to capture the full spatial-temporal complexity of nitrogen-weather interactions. On the quality side, soil and topographic features are derived from publicly available datasets (SSURGO and DEM), which do not reflect within-field spatial variability at a resolution relevant to nitrogen management. These limitations have been noted in earlier simulation studies as well (@miao2023; @xue2023), and our results further reinforce that current public data products are inadequate for high-resolution agronomic inference.
+
+The prediction models are further hampered by their inability to generalize yield-N response under variable weather. As shown in our year-by-year analysis, predicted yield curves often miss key biological signals and fluctuate non-linearly under price changes—contrary to agronomic expectations. This behavior diminishes their value as decision-support tools for farmers managing nitrogen under uncertainty.
+
+While the long-term promise of using OFPE data to generate positive externalities in U.S. agriculture remains attractive, our study suggests that significant investments in spatially rich, high-resolution, and weather-calibrated data are necessary before these benefits can be realized. Until then, farmers and policymakers should be cautious when interpreting or deploying nitrogen recommendations derived solely from predictive modeling of pooled trial data.
+
+
+
+# Discussion
+
+## Limitations in Data Representation and Predictive Precision
+
+Although this study demonstrates the feasibility of using machine learning (ML) models trained on multi-field OFPE data to predict yield response and optimal nitrogen rates in unseen fields, the findings reveal persistent limitations rooted in both data quality and data scope. These constraints directly affect the robustness and profitability of the estimated $EONR_o$ across methods and conditions.
+
+### Field Characterization: Soil and Topographic Constraints
+
+@fig-vip_check presents a summary of variable importance rankings across all models and trials, comparing XGBoost and Random Forest. One consistent pattern emerges: variables related to topography—particularly elevation—frequently rank highest in predictive relevance, while soil characteristics such as clay, sand, and water storage are either inconsistently ranked or appear with low frequency. This suggests that current predictors may inadequately capture the agronomic heterogeneity required for accurate yield response modeling.
+
+Soil data, drawn from the SSURGO database, is derived from interpolated and coarse-resolution soil maps. These are often too aggregated to detect within-field variations in nutrient retention and organic matter—two factors that are critical to nitrogen responsiveness (@jenkinson2001). The low ranking of clay, silt, and sand across both ML models indicates that the contribution of soil texture to yield variation is not well reflected in the available data. Moreover, the omission of direct measures of plant-available nitrogen or water holding capacity limits the explanatory power of these variables in the response function.
+
+Topographic predictors such as slope, curvature, and TWI (Topographic Wetness Index) are constructed from DEMs that lack validation through ground-truth surveys. While elevation ranked consistently high in importance (see top left of @fig-vip_check), this dominance may stem more from its role in separating macro-location across farms rather than capturing within-field water dynamics or soil redistribution (@moore1993). The use of low-resolution DEMs diminishes the potential to detect sub-field drainage patterns and erosion risks, which are often key moderators of nitrogen efficiency.
+
+```{r fig-vip_check, echo=FALSE, fig.width=8, fig.height=8, out.width="100%"}
+
+# Load saved images as raster graphics
+xgb_img1 <- rasterGrob(readPNG(here::here("Results", "Tables", "xgb_table_1.png")), interpolate = TRUE)
+xgb_img2 <- rasterGrob(readPNG(here::here("Results", "Tables", "xgb_table_2.png")), interpolate = TRUE)
+rf_img1  <- rasterGrob(readPNG(here::here("Results", "Tables", "rf_table_1.png")), interpolate = TRUE)
+rf_img2  <- rasterGrob(readPNG(here::here("Results", "Tables", "rf_table_2.png")), interpolate = TRUE)
+
+# Adjust padding inside grid layout to reduce column spacing
+xgb_g1 <- arrangeGrob(xgb_img1, padding = unit(-5, "mm"))  # Reduce padding
+xgb_g2 <- arrangeGrob(xgb_img2, padding = unit(-5, "mm"))
+rf_g1  <- arrangeGrob(rf_img1, padding = unit(-5, "mm"))
+rf_g2  <- arrangeGrob(rf_img2, padding = unit(-5, "mm"))
+
+# Arrange images in a 2x2 grid with minimal column spacing
+grid.newpage()  # Start a new grid page
+grid.draw(grid.arrange(
+  xgb_g1, xgb_g2, rf_g1, rf_g2, 
+  ncol = 2, nrow = 2,
+  top = textGrob("Variable Importance Comparison", gp=gpar(fontsize = 14, fontface = "bold")),
+  bottom = textGrob("Top Row: XGBoost | Bottom Row: Random Forest", gp=gpar(fontsize = 12)),
+  widths = unit(c(0.45, 0.45), "npc")  # Reduce column spacing
+))
+
+```
+
+### Limited Representation of Yield-Nitrogen-Weather Interactions
+
+Another key insight from Figure @fig-vip_check is the relative ranking of weather variables—growing degree days (GDD), extreme degree days (EDD), and precipitation total (prcp_t). While these occasionally appear in high positions, their predictive role fluctuates substantially across years and methods. This instability points to an underlying issue: the models struggle to generalize how nitrogen response varies across different weather scenarios.
+
+The lack of interaction terms or dynamic modeling of nitrogen-weather interplay reduces interpretability and limits predictive performance under new weather conditions. This is further exacerbated by the relatively small number of trials conducted per year (6 to 14), which restricts the model's exposure to a full spectrum of weather variability. As prior agronomic research highlights, understanding nitrogen response under extreme wet or dry years is critical to improving profitability and sustainability of fertilizer use (@gentry2021; @asplund2020).
+
+These observations support a broader conclusion that without targeted expansion of the dataset—especially through spatially and climatically diverse trials—any model trained on pooled OFPE data will likely remain fragile under real-world conditions.
+
+
+# Conclusion
+
+This study evaluated the extent to which pooled OFPE data from other fields can substitute for field-specific experimentation in estimating economically optimal nitrogen rates ($EONR_o$). Using machine learning models trained on multi-field data, we compared predicted $EONR_o$ values with direct field-level estimates ($EONR_d$) derived from in-season OFPE trials. While the conceptual promise of this approach lies in creating agronomic spillovers and informational externalities, the results suggest that predictive performance is not yet reliable enough to warrant field-level decision-making.
+
+Several limitations in the current dataset prevent robust generalization. First, the number of OFPE trials remains limited, with insufficient coverage of diverse weather years and topographic regions. Second, the quality of field descriptors—particularly soil and topographic inputs—is compromised by reliance on interpolated SSURGO and DEM products, which fail to capture fine-scale heterogeneity in nutrient holding capacity and water flow. Third, the machine learning models, although flexible and powerful, produce unstable yield-N response curves and optimal rates, often diverging under changing economic conditions such as shifts in the nitrogen-to-corn price ratio.
+
+Nonetheless, the findings do not negate the broader potential of multi-field OFPE data to function as a public good. Instead, they highlight the requirements for realizing that potential: high-resolution soil and topographic data, multi-year and weather-diverse trials, and more biologically grounded modeling of nitrogen responses. Future work should explore how additional data layers—such as NDVI, satellite imagery, or targeted soil sampling—can improve the predictive fidelity of yield-N response functions.
+
+While the economic value of $EONR_o$ remains limited at present, this study offers a transparent benchmark for what is required to transform OFPE data from a field-specific decision tool into a scalable platform for precision agriculture. By documenting the current gaps and proposing clear paths for improvement, this research contributes to ongoing efforts to democratize agronomic experimentation and improve nitrogen management across the U.S. Corn Belt.
+
+
+# References {.unnumbered}
