@@ -1,17 +1,18 @@
 # ============================================================
-# functions_for_ensembles.R — ensemble training utilities
+# functions_for_trees.R — tree-model utilities for LOLO
 #   - Group split: leave-one-location-out by farm_field
-#   - Monotone XGB (+1 for n_rate), smoother RF
-#   - Curve grid at representative medians (vary n only)
+#   - Monotone XGB (+1 for n_rate), RF baseline
+#   - Curve grid at TEST medians (vary N only)
 #   - Roughness metric (sum of squared 2nd differences)
-#   - Optional SCAM baseline for shape-constrained reference
+#   - Optional mgcv GAM baseline (fit on TEST field only)
+#   - EONR via grid profit search across scenarios
 # ============================================================
 
 suppressPackageStartupMessages({
   library(dplyr); library(tidyr); library(purrr); library(tibble); library(stringr)
   library(ranger)
   library(xgboost)
-  suppressWarnings(suppressMessages(requireNamespace("scam", quietly = TRUE)))
+  library(mgcv)     # <— use mgcv instead of scam
   library(Metrics)
 })
 
@@ -80,17 +81,62 @@ roughness_ssd <- function(x, y) {
 # ---------------------- Fit base learners -------------------
 
 fit_rf <- function(train_df, y_var, x_vars, rf = list()) {
+  td <- train_df[, c(y_var, x_vars), drop = FALSE]
+  td <- td %>%
+    dplyr::mutate(dplyr::across(dplyr::all_of(x_vars), ~ if (is.character(.)) factor(.) else .)) %>%
+    tidyr::drop_na(dplyr::all_of(c(y_var, x_vars)))
+
+  n <- nrow(td)
+  if (n < 10) {
+    warning(sprintf("RF skipped: too few training rows after drop_na (%d).", n))
+    return(NULL)
+  }
+
+  # Safe defaults for tiny n
+  mtry_default  <- max(1, floor(length(x_vars) / 4))
+  min_node_safe <- min(rf$min.node.size %||% 40, max(2, floor(n / 5)))
+  samp_frac     <- max(rf$sample.fraction %||% 0.7, min(1, 1 / n + 1e-8))  # ensure >= 1 obs
+  replace_arg   <- rf$replace %||% TRUE
+
   fml <- as.formula(paste(y_var, "~", paste(x_vars, collapse = " + ")))
-  ranger::ranger(
-    formula         = fml,
-    data            = train_df[, c(y_var, x_vars), drop = FALSE],
-    num.trees       = rf$num.trees %||% 800,
-    mtry            = rf$mtry %||% max(1, floor(length(x_vars)/4)),
-    min.node.size   = rf$min.node.size %||% 40,
-    max.depth       = rf$max.depth %||% 12,
-    sample.fraction = rf$sample.fraction %||% 0.7,
-    seed            = rf$seed %||% 123
+
+  out <- tryCatch(
+    ranger::ranger(
+      formula         = fml,
+      data            = td,
+      num.trees       = rf$num.trees %||% 800,
+      mtry            = rf$mtry %||% mtry_default,
+      min.node.size   = min_node_safe,
+      max.depth       = rf$max.depth %||% 12,
+      sample.fraction = samp_frac,
+      replace         = replace_arg,
+      importance      = rf$importance %||% "impurity",
+      seed            = rf$seed %||% 123
+    ),
+    error = function(e) {
+      warning(sprintf("RF retry with sample.fraction=1.0 & min.node.size=2 due to: %s", e$message))
+      tryCatch(
+        ranger::ranger(
+          formula         = fml,
+          data            = td,
+          num.trees       = rf$num.trees %||% 800,
+          mtry            = rf$mtry %||% mtry_default,
+          min.node.size   = 2,
+          max.depth       = rf$max.depth %||% 12,
+          sample.fraction = 1.0,
+          replace         = TRUE,
+          importance      = rf$importance %||% "impurity",
+          seed            = rf$seed %||% 123
+        ),
+        error = function(e2) {
+          warning(sprintf("RF failed after retry: %s. Returning NULL.", e2$message))
+          NULL
+        }
+      )
+    }
   )
+
+  out
 }
 
 fit_xgb <- function(train_df, y_var, x_vars, n_col, xgb = list()) {
@@ -168,12 +214,12 @@ predict_models <- function(bundle, newdata) {
     out$XGB <- predict(bundle$fits$XGB, xgboost::xgb.DMatrix(mm))
   }
 
-  tibble::as_tibble(out) %>%
-    dplyr::mutate(ENSEMBLE = rowMeans(dplyr::across(everything()), na.rm = TRUE))
+  tibble::as_tibble(out)   # RF/XGB columns only
 }
 
-predict_curve_models <- function(bundle, x_vars, n_col, n_seq) {
-  rep_row <- representative_row(bundle$train_df, x_vars, exclude = n_col)
+# NOTE: medians from a provided reference df (e.g., TEST field)
+predict_curve_models <- function(bundle, x_vars, n_col, n_seq, ref_df) {
+  rep_row <- representative_row(ref_df, x_vars, exclude = n_col)
   grid <- tibble(!!n_col := n_seq) %>%
     tidyr::crossing(rep_row) %>%
     dplyr::relocate(dplyr::all_of(n_col))
@@ -181,62 +227,91 @@ predict_curve_models <- function(bundle, x_vars, n_col, n_seq) {
   dplyr::bind_cols(grid, preds)
 }
 
-# ------------------------- SCAM (optional) ------------------
+# ------------------------- mgcv GAM baseline ----------------
 
-build_scam_formula <- function(y_var, x_vars, n_col, k_all = 6) {
-  n_term <- sprintf("s(%s, k=%d, bs='mpi')", n_col, k_all) # monotone ↑ in N
-  rhs <- c(n_term, setdiff(x_vars, n_col))
+build_mgcv_formula <- function(y_var, x_vars, n_col, k_all = 6, smooth_others = FALSE) {
+  # Smooth N with cubic regression spline; others linear by default for speed
+  n_term <- sprintf("s(%s, k=%d, bs='cr')", n_col, k_all)
+  if (isTRUE(smooth_others)) {
+    other <- setdiff(x_vars, n_col)
+    other_terms <- if (length(other)) sprintf("s(%s, k=4, bs='cr')", other) else character(0)
+    rhs <- c(n_term, other_terms)
+  } else {
+    rhs <- c(n_term, setdiff(x_vars, n_col))
+  }
   as.formula(paste(y_var, "~", paste(rhs, collapse = " + ")))
 }
 
-fit_scam <- function(df, y_var, x_vars, n_col, k_all = 6) {
-  if (!requireNamespace("scam", quietly = TRUE)) stop("Package 'scam' required for SCAM fit.")
-  dd <- df %>% mutate(across(all_of(x_vars), ~ if (is.character(.)) factor(.) else .)) %>%
-    drop_na(all_of(c(y_var, x_vars)))
-  scam::scam(build_scam_formula(y_var, x_vars, n_col, k_all), data = dd)
+fit_mgcv <- function(df, y_var, x_vars, n_col, k_all = 6, smooth_others = FALSE) {
+  dd <- df %>%
+    mutate(across(all_of(x_vars), ~ if (is.character(.)) factor(.) else .)) %>%
+    tidyr::drop_na(all_of(c(y_var, x_vars)))
+  fml <- build_mgcv_formula(y_var, x_vars, n_col, k_all = k_all, smooth_others = smooth_others)
+  mgcv::gam(fml, data = dd, method = "REML", select = TRUE)
 }
 
-predict_curve_scam <- function(scam_fit, ref_df, x_vars, n_col, n_seq) {
+predict_curve_mgcv <- function(mgcv_fit, ref_df, x_vars, n_col, n_seq) {
   rep_row <- representative_row(ref_df, x_vars, exclude = n_col)
-  grid <- tibble(!!n_col := n_seq) %>% tidyr::crossing(rep_row) %>% dplyr::relocate(dplyr::all_of(n_col))
-  yh <- as.numeric(predict(scam_fit, newdata = grid, type = "response"))
-  dplyr::bind_cols(grid, tibble(SCAM = yh))
+  grid <- tibble(!!n_col := n_seq) %>%
+    tidyr::crossing(rep_row) %>%
+    dplyr::relocate(dplyr::all_of(n_col))
+  yh <- as.numeric(predict(mgcv_fit, newdata = grid, type = "response"))
+  dplyr::bind_cols(grid, tibble(GAM = yh))
 }
 
-# ---------------------- LOLO evaluation ---------------------
-
+# ---- Holdout metrics helper (RMSE/MAE) ----
 eval_holdout <- function(y_true, preds_df) {
-  mods <- colnames(preds_df)
-  dplyr::bind_rows(lapply(mods, function(m) {
-    tibble(model = m,
-           RMSE = Metrics::rmse(y_true, preds_df[[m]]),
-           MAE  = Metrics::mae(y_true,  preds_df[[m]]))
-  }))
+  # guardrails
+  if (is.null(preds_df) || !nrow(preds_df)) {
+    return(tibble::tibble(model = character(), RMSE = numeric(), MAE = numeric()))
+  }
+  if (!requireNamespace("Metrics", quietly = TRUE)) {
+    stop("Package 'Metrics' is required for RMSE/MAE. install.packages('Metrics')")
+  }
+  mods <- names(preds_df)
+  purrr::map_dfr(mods, function(m) {
+    p <- preds_df[[m]]
+    ok <- is.finite(y_true) & is.finite(p)
+    if (!any(ok)) {
+      tibble::tibble(model = m, RMSE = NA_real_, MAE = NA_real_)
+    } else {
+      tibble::tibble(
+        model = m,
+        RMSE  = Metrics::rmse(y_true[ok], p[ok]),
+        MAE   = Metrics::mae (y_true[ok], p[ok])
+      )
+    }
+  })
 }
+
+# ---------------------- LOLO main ---------------------------
 
 lolo_run_once <- function(df, test_ffy_id, y_var, x_vars, n_col,
                           use_rf, use_xgb, rf, xgb,
-                          n_points = 100, use_scam = TRUE, scam_k = 6) {
+                          n_points = 100, use_gam = TRUE, gam_k = 6, gam_smooth_others = FALSE) {
 
+  # Identify held-out location from the requested field-year
   test_loc <- df %>% dplyr::filter(ffy_id == test_ffy_id) %>% dplyr::distinct(farm_field) %>% dplyr::pull()
   if (length(test_loc) != 1) stop("Unique farm_field not found for test ffy_id: ", test_ffy_id)
 
+  # Split
   train_df <- df %>% dplyr::filter(farm_field != test_loc)
   test_df  <- df %>% dplyr::filter(ffy_id == test_ffy_id)
 
+  # Fit bundle on TRAIN locations only
   bundle <- fit_bundle(train_df, y_var, x_vars, n_col, use_rf, use_xgb, rf, xgb)
 
   # Holdout predictions on real subplot rows
   ph <- predict_models(bundle, test_df)
-
-  model_cols_metrics <- intersect(c("RF","XGB","ENSEMBLE"), names(ph))
+  model_cols_metrics <- intersect(c("RF","XGB"), names(ph))
   metrics_models <- eval_holdout(test_df[[y_var]], ph %>% dplyr::select(dplyr::all_of(model_cols_metrics)))
 
-  # Curve & roughness (median covariates)
-  n_seq   <- build_n_seq(train_df, n_col, n_points)
-  curves  <- predict_curve_models(bundle, x_vars, n_col, n_seq)
+  # N grid from TEST, covariates fixed at TEST medians
+  n_seq  <- build_n_seq(test_df, n_col, n_points)
+  curves <- predict_curve_models(bundle, x_vars, n_col, n_seq, ref_df = test_df)
 
-  model_cols_curves <- intersect(c("RF","XGB","ENSEMBLE"), names(curves))
+  # Roughness per model (RF/XGB curves)
+  model_cols_curves <- intersect(c("RF","XGB"), names(curves))
   curve_long <- curves %>%
     tidyr::pivot_longer(cols = dplyr::all_of(model_cols_curves),
                         names_to = "model", values_to = "yhat")
@@ -245,16 +320,16 @@ lolo_run_once <- function(df, test_ffy_id, y_var, x_vars, n_col,
     dplyr::group_by(model) %>%
     dplyr::summarise(roughness = roughness_ssd(.data[[n_col]], yhat), .groups = "drop")
 
-  # Optional SCAM baseline
-  scam_bits <- NULL
-  if (isTRUE(use_scam)) {
-    sf <- fit_scam(test_df, y_var, x_vars, n_col, k_all = scam_k)
-    scam_hold <- tibble(SCAM = as.numeric(predict(sf, newdata = test_df, type = "response")))
-    met_scam  <- eval_holdout(test_df[[y_var]], scam_hold) %>% dplyr::mutate(model = "SCAM")
-    curves_scam <- predict_curve_scam(sf, ref_df = train_df, x_vars, n_col, n_seq)
-    rough_scam  <- tibble(model = "SCAM",
-                          roughness = roughness_ssd(curves_scam[[n_col]], curves_scam$SCAM))
-    scam_bits <- list(sf = sf, curves = curves_scam, metrics = met_scam, rough = rough_scam)
+  # Optional mgcv baseline (fit on TEST DF only to reflect that field's shape)
+  gam_bits <- NULL
+  if (isTRUE(use_gam)) {
+    gam_fit   <- fit_mgcv(test_df, y_var, x_vars, n_col, k_all = gam_k, smooth_others = gam_smooth_others)
+    gam_hold  <- tibble::tibble(GAM = as.numeric(predict(gam_fit, newdata = test_df, type = "response")))
+    met_gam   <- eval_holdout(test_df[[y_var]], gam_hold) %>% dplyr::mutate(model = "GAM")
+    curves_gam <- predict_curve_mgcv(gam_fit, ref_df = test_df, x_vars, n_col, n_seq)
+    rough_gam  <- tibble::tibble(model = "GAM",
+                                 roughness = roughness_ssd(curves_gam[[n_col]], curves_gam$GAM))
+    gam_bits <- list(gam = gam_fit, curves = curves_gam, metrics = met_gam, rough = rough_gam)
   }
 
   list(
@@ -262,8 +337,8 @@ lolo_run_once <- function(df, test_ffy_id, y_var, x_vars, n_col,
     test_ffy_id = test_ffy_id,
     test_loc = test_loc,
     holdout_metrics = metrics_models,
-    curve_table = curves,
-    curve_roughness = rough_tbl,
-    scam = scam_bits
+    curve_table = curves,          # RF/XGB
+    curve_roughness = rough_tbl,   # RF/XGB
+    gam = gam_bits                 # GAM curves/metrics in $gam
   )
 }

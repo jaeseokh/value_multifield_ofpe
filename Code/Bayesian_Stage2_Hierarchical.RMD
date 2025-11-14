@@ -1,0 +1,360 @@
+---
+title: "Stage 2 — Hierarchical Bayesian Yield–N (MB & QP)"
+author: "Jaeseok Hwang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+  pdf:
+    toc: true
+    number-sections: true
+editor_options:
+  chunk_output_type: console
+params:
+  run_mb:   true     # set false to skip MB
+  run_qp:   true     # set false to skip QP
+  seed:     2025
+---
+
+# Purpose
+
+We fit two hierarchical Bayesian yield–N models and compare:
+- **MB**: monotone/plateau curve with partial pooling and timing-effects on plateau/steepness.
+- **QP**: concave quadratic benchmark with partial pooling and timing-effects on the linear term.
+
+Outputs: posterior curves, field EONR, summaries, and figures/tables.
+
+
+## Setup
+
+```{r setup}
+#| label: setup
+#| include: false
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE, error = FALSE,
+  fig.align = "center", fig.width = 7, fig.height = 4.5, dpi = 200,
+  collapse = TRUE, comment = "#>"
+)
+set.seed(params$seed)
+options(mc.cores = parallel::detectCores())
+```
+
+```{r libraries} 
+suppressPackageStartupMessages({
+library(data.table); library(dplyr); library(tidyr); library(stringr)
+library(ggplot2); library(patchwork)
+library(purrr); library(glue); library(scales)
+library(readr); library(here)
+library(fixest) # fast FE regressions
+library(broom) # tidy model outputs
+library(modelsummary) # tables + plots
+})
+```
+
+## Paths 
+
+```{r paths} 
+
+proj <- here::here()
+dirs <- list(
+data_processed = file.path(proj, "Data", "Processed", "Analysis_ready"),
+figs = file.path(proj, "Results", "Figures", "stage2"),
+tabs = file.path(proj, "Results", "Tables", "stage2"),
+fits = file.path(proj, "Results", "Fits", "stage2")
+)
+invisible(lapply(dirs, dir.create, recursive = TRUE, showWarnings = FALSE))
+
+```
+
+## Load Stage-1 data and hints
+```{r load} 
+
+#| label: load-data
+data_path <- file.path(dirs$data_processed, "stacked_analysis_table.rds")
+df <- readRDS(data_path)
+
+# same cleaning used in Stage 1 (±1.5 SD trimming per field)
+
+dat <- df %>%
+mutate(
+farm_field = stringr::str_remove(ffy_id, "_[0-9]{4}$"),
+year       = stringr::str_extract(ffy_id, "[0-9]{4}"),
+farm_field = as.factor(farm_field),
+year       = as.factor(year)
+) %>%
+transmute(
+ffy_id = as.factor(ffy_id),
+farm_field, year,
+yield  = yield,
+n_rate = n_rate,
+# timing windows (edit as needed)
+precip_S2, gdd_S2, edd_S2,
+precip_postN_d15, heavy_rain_days_postN_d15
+) %>%
+filter(is.finite(yield), is.finite(n_rate)) %>%
+group_by(farm_field) %>%
+mutate(n_mean = mean(n_rate, na.rm = TRUE),
+n_sd   = sd(n_rate,   na.rm = TRUE)) %>%
+filter(n_rate >= n_mean - 1.5*n_sd,
+n_rate <= n_mean + 1.5*n_sd) %>%
+ungroup() %>%
+select(-n_mean, -n_sd)
+
+glue("N = {nrow(dat)}, fields = {dplyr::n_distinct(dat$farm_field)}, years = {dplyr::n_distinct(dat$year)}")
+```
+
+# Helper: grids, EONR functions, standardization
+
+```{r helpers} 
+
+# Standardize inputs for regression on parameters (keeps priors stable)
+
+stdize <- function(x) as.numeric(scale(x))
+
+dat <- dat %>%
+mutate(
+z_precip_S2 = stdize(precip_S2),
+z_gdd_S2    = stdize(gdd_S2),
+z_edd_S2    = stdize(edd_S2),
+z_postP15   = stdize(precip_postN_d15),
+z_postHR15  = stdize(heavy_rain_days_postN_d15)
+)
+
+# N grid for predictions and EONR search
+
+n_grid <- tibble(n_rate = seq(max(0, floor(min(dat$n_rate, na.rm=TRUE))),
+ceiling(max(dat$n_rate, na.rm=TRUE)), by = 2))
+
+# EONR for MB: derivative = beta*kappa*exp(-kappa*n) set equal to price ratio lambda; here report argmax over grid
+
+argmax_on_grid <- function(n, yhat) n[which.max(yhat)]
+
+```
+
+##  Model A: MB (monotone asymptotic)
+###  Field-level parameters depend on timing covariates with pooling.
+
+
+```{r mb formula} 
+
+#| label: mb-model-spec
+mb_formula <- bf(
+yield ~ alpha + beta * (1 - exp(-kappa * n_rate)),
+alpha ~ 1 + z_precip_S2 + z_gdd_S2 + z_postP15 + z_postHR15 + (1|farm_field) + i(year),
+beta  ~ 1 + z_precip_S2 + z_gdd_S2 + z_postP15 + z_postHR15 + (1|farm_field),
+kappa ~ 1 + z_precip_S2 + z_gdd_S2 + z_postP15 + z_postHR15 + (1|farm_field),
+nl = TRUE
+)
+
+# Priors: weakly informative but sign-aware where sensible
+
+# alpha ~ plateau center
+
+# beta  ≥ 0 (HalfNormal via lower=0)
+
+# kappa ≥ 0 (HalfNormal via lower=0)
+
+curv_scale <- max( pri_hint$curvature_iqr/1.35, 1e-4)
+peak_scale <- max( pri_hint$peakN_iqr/1.35, 5)
+
+mb_priors <- c(
+prior(normal(0, 50),  nlpar = "alpha", class = "Intercept"),
+prior(normal(0, 10),  nlpar = "beta",  class = "Intercept", lb = 0),
+prior(normal(0, 0.05),nlpar = "kappa", class = "Intercept", lb = 0),
+
+prior(normal(0, 5), nlpar = "alpha", class = "b"),
+prior(normal(0, 2), nlpar = "beta",  class = "b"),
+prior(normal(0, 0.02),nlpar = "kappa",class = "b"),
+
+prior(exponential(0.1), class = "sd", nlpar = "alpha"),
+prior(exponential(0.1), class = "sd", nlpar = "beta"),
+prior(exponential(0.1), class = "sd", nlpar = "kappa"),
+
+prior(exponential(0.1), class = "sigma")
+)
+```
+
+# Fit the M-B cruve
+
+```{r mb fit} 
+
+if (isTRUE(params$run_mb)) {
+fit_mb <- brm(
+formula = mb_formula,
+data = dat,
+prior = mb_priors,
+family = gaussian(),
+chains = 4, iter = 3000, warmup = 1000, cores = min(4, parallel::detectCores()),
+control = list(adapt_delta = 0.9, max_treedepth = 12),
+seed = params$seed
+)
+saveRDS(fit_mb, file.path(dirs$fits, "fit_mb.rds"))
+} else {
+fit_mb <- NULL
+}
+
+```
+
+# Prediction M-B
+
+```{r mb prediction} 
+
+if (!is.null(fit_mb)) {
+
+Predict per field at typical covariate values (z=0, median year effect)
+
+base_new <- dat %>%
+group_by(farm_field) %>%
+summarise(across(c(z_precip_S2, z_gdd_S2, z_postP15, z_postHR15), ~0), .groups="drop") %>%
+tidyr::crossing(n_grid)
+
+mb_epred <- posterior_epred(fit_mb, newdata = base_new, re_formula = NA) # population-level
+mb_summ <- tibble(n_rate = base_new$n_rate,
+farm_field = base_new$farm_field) %>%
+bind_cols(as_tibble(t(apply(mb_epred, 2, (x) c(mean=mean(x), lwr=quantile(x,0.1), upr=quantile(x,0.9))))))
+
+EONR as argmax over grid (per field)
+
+eonr_mb <- mb_summ %>% group_by(farm_field) %>%
+summarise(EONR_MB = argmax_on_grid(n_rate, mean), .groups = "drop")
+
+write_csv(eonr_mb, file.path(dirs$tabs, "eonr_mb.csv"))
+}
+
+# plot the prediction
+
+if (!is.null(fit_mb)) {
+p_mb <- mb_summ %>%
+ggplot(aes(n_rate, mean)) +
+geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.2) +
+geom_line() +
+facet_wrap(~ farm_field, scales = "free_y") +
+labs(title = "MB posterior mean curves (80% bands, z-covariates at 0)",
+x = "N rate", y = "Yield")
+p_mb
+ggsave(file.path(dirs$figs, "mb_curves_by_field.png"), p_mb, width = 11, height = 8, dpi = 200)
+}
+
+```
+
+## Model B: QP (concave quadratic benchmark)
+
+### negative constraint of coefficient of quadratic response
+
+```{r qb-model} 
+
+#| label: qp-model-spec
+qp_formula <- bf(
+yield ~ a + b*n_rate + c*n_rate^2,
+a ~ 1 + z_precip_S2 + z_gdd_S2 + z_postP15 + z_postHR15 + (1|farm_field) + i(year),
+b ~ 1 + z_precip_S2 + z_gdd_S2 + z_postP15 + z_postHR15 + (1|farm_field),
+c ~ 1 + z_precip_S2 + z_gdd_S2 + z_postP15 + z_postHR15 + (1|farm_field),
+nl = TRUE
+)
+
+# Priors: concavity via negative-centered prior on c
+
+qp_priors <- c(
+prior(normal(0, 50), nlpar = "a", class = "Intercept"),
+prior(normal(0,  5), nlpar = "b", class = "Intercept"),
+prior(normal(-0.002, 0.001), nlpar = "c", class = "Intercept"),  # concavity anchor
+
+prior(normal(0, 5), nlpar = "a", class = "b"),
+prior(normal(0, 2), nlpar = "b", class = "b"),
+prior(normal(-0.001, 0.001), nlpar = "c", class = "b"),
+
+prior(exponential(0.1), class = "sd", nlpar = "a"),
+prior(exponential(0.1), class = "sd", nlpar = "b"),
+prior(exponential(0.1), class = "sd", nlpar = "c"),
+
+prior(exponential(0.1), class = "sigma")
+)
+
+```
+
+
+```{r qb-fit} 
+
+#| label: qp-fit
+if (isTRUE(params$run_qp)) {
+fit_qp <- brm(
+formula = qp_formula,
+data    = dat,
+prior   = qp_priors,
+family  = gaussian(),
+chains = 4, iter = 3000, warmup = 1000, cores = min(4, parallel::detectCores()),
+control = list(adapt_delta = 0.9, max_treedepth = 12),
+seed = params$seed
+)
+saveRDS(fit_qp, file.path(dirs$fits, "fit_qp.rds"))
+} else {
+fit_qp <- NULL
+}
+
+```
+
+
+```{r qb-pred} 
+#| label: qp-preds
+if (!is.null(fit_qp)) {
+base_new <- dat %>%
+group_by(farm_field) %>%
+summarise(across(c(z_precip_S2, z_gdd_S2, z_postP15, z_postHR15), ~0), .groups="drop") %>%
+tidyr::crossing(n_grid)
+
+qp_epred <- posterior_epred(fit_qp, newdata = base_new, re_formula = NA)
+qp_summ  <- tibble(n_rate = base_new$n_rate,
+farm_field = base_new$farm_field) %>%
+bind_cols(as_tibble(t(apply(qp_epred, 2, (x) c(mean=mean(x), lwr=quantile(x,0.1), upr=quantile(x,0.9))))))
+
+# EONR for quadratic: -b/(2c), clipped to grid
+
+draws <- as_draws_df(fit_qp)
+
+# extract population-level a,b,c intercepts plus random intercepts per farm_field if needed
+
+# For simplicity, compute EONR from posterior predictions on grid:
+
+eonr_qp <- qp_summ %>% group_by(farm_field) %>%
+summarise(EONR_QP = argmax_on_grid(n_rate, mean), .groups = "drop")
+
+write_csv(eonr_qp, file.path(dirs$tabs, "eonr_qp.csv"))
+}
+
+
+#| label: qp-plot
+if (!is.null(fit_qp)) {
+p_qp <- qp_summ %>%
+ggplot(aes(n_rate, mean)) +
+geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.2) +
+geom_line() +
+facet_wrap(~ farm_field, scales = "free_y") +
+labs(title = "QP posterior mean curves (80% bands, z-covariates at 0)",
+x = "N rate", y = "Yield")
+p_qp
+ggsave(file.path(dirs$figs, "qp_curves_by_field.png"), p_qp, width = 11, height = 8, dpi = 200)
+}
+
+```
+
+## Compare EONR and curves
+
+```{r comp_eonr} 
+
+#| label: compare-eonr
+eonr_mb <- if (file.exists(file.path(dirs$tabs, "eonr_mb.csv"))) read_csv(file.path(dirs$tabs, "eonr_mb.csv"), show_col_types = FALSE) else NULL
+eonr_qp <- if (file.exists(file.path(dirs$tabs, "eonr_qp.csv"))) read_csv(file.path(dirs$tabs, "eonr_qp.csv"), show_col_types = FALSE) else NULL
+
+if (!is.null(eonr_mb) && !is.null(eonr_qp)) {
+eonr_join <- full_join(eonr_mb, eonr_qp, by = "farm_field")
+modelsummary::datasummary_df(eonr_join, title = "EONR by field (MB vs QP)", output = "markdown")
+write_csv(eonr_join, file.path(dirs$tabs, "eonr_mb_vs_qp.csv"))
+} else if (!is.null(eonr_mb)) {
+modelsummary::datasummary_df(eonr_mb, title = "EONR by field (MB)", output = "markdown")
+} else if (!is.null(eonr_qp)) {
+modelsummary::datasummary_df(eonr_qp, title = "EONR by field (QP)", output = "markdown")
+}
+```
+

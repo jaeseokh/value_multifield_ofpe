@@ -1,0 +1,184 @@
+---
+title: "Stage 1 — Prior Basis & Pooled Timing Check"
+author: "Jaeseok Hwang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+  pdf:
+    toc: true
+    number-sections: true
+editor_options:
+  chunk_output_type: console
+---
+
+# Stage-1: Pooled regression comparison (starts here)
+
+> **Identification note.** Timing variables (e.g., `precip_postN_d15`, `gdd_S2`)
+##  are **one value per field-year**. With field-year fixed effects, 
+## their **main effects** are absorbed.
+##  To identify their role, include **interactions with N and N²** (which vary across strip plots).
+
+## 0. Setup
+
+```{r}
+#| label: setup
+#| include: false
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE, error = FALSE,
+  fig.align = "center", fig.width = 7.2, fig.height = 4.6, dpi = 200,
+  collapse = TRUE, comment = "#>"
+)
+options(scipen = 999, dplyr.summarise.inform = FALSE)
+
+
+```{r libraries} 
+suppressPackageStartupMessages({
+library(dplyr); library(tidyr); library(stringr); library(readr)
+library(ggplot2); library(here); library(scales)
+library(fixest) # pooled FE
+library(modelsummary) # tables/plots
+})
+```
+
+```{r paths} 
+
+#| label: load-data
+df <- readRDS(file.path(dirs$data_processed, "stacked_analysis_table.rds"))
+
+dat <- df %>%
+mutate(
+farm_field = str_remove(ffy_id, "_[0-9]{4}$"),
+year = str_extract(ffy_id, "[0-9]{4}"),
+farm_field = factor(farm_field),
+year = factor(year)
+) %>%
+transmute(
+obs_id,
+ffy_id = factor(ffy_id),
+farm_field, year,
+yield, n_rate,
+# static soil/topo (vary within field in rasterized form)
+elev, slope, aspect, TPI, clay, sand, silt, water_storage,
+# seasonal totals (legacy)
+prcp_t = prcp_t, gdd_t = gdd_t, edd_t = edd_t,
+# timing windows
+precip_postN_d15, heavy_rain_days_postN_d15,
+gdd_S2, edd_S2, precip_S2
+) %>%
+filter(is.finite(yield), is.finite(n_rate)) %>%
+# trim extreme N rates per farm_field (±1.5 sd)
+group_by(farm_field) %>%
+mutate(n_mean = mean(n_rate), n_sd = sd(n_rate)) %>%
+ungroup() %>%
+filter(n_rate >= n_mean - 1.5n_sd, n_rate <= n_mean + 1.5n_sd) %>%
+dplyr::select(-n_mean, -n_sd) 
+glue::glue("Sample: {nrow(dat)} observations, {dplyr::n_distinct(dat$ffy_id)} field-years, {dplyr::n_distinct(dat$farm_field)} fields.")
+
+```
+
+## Center/scale regressors for stable interactions
+
+```{r scale}
+
+#label: zvars
+z <- function(x) as.numeric(scale(x))
+
+dat <- dat %>%
+mutate(
+zN = z(n_rate),
+zN2 = z(n_rate^2),
+# timing (one per ffy)
+zP15 = z(precip_postN_d15),
+zHR15= z(heavy_rain_days_postN_d15),
+zG2 = z(gdd_S2),
+zE2 = z(edd_S2),
+zPS2 = z(precip_S2),
+# legacy seasonal totals
+zPRCPT = z(prcp_t),
+zGDDT = z(gdd_t),
+zEDDT = z(edd_t),
+# soil/topo
+zWS = z(water_storage), zCL = z(clay), zSA = z(sand), zSI = z(silt),
+zSLP = z(slope), zELV = z(elev), zASP = z(aspect), zTPI = z(TPI)
+)
+
+```
+
+### Model ladder (FFY fixed effects; cluster by farm_field)
+
+```{r quadratic} 
+
+#| label: models
+
+Baseline: N shape only + FFY FE
+
+m0 <- feols(
+yield ~ zN + zN2 | ffy_id,
+data = dat, cluster = ~ farm_field
+)
+
+Add legacy totals × N to compare with your prior spec
+
+m0_legacy <- feols(
+yield ~ zN + zN2 +
+zN + zN2 +
+zN + zN2 +
+zN + zN2 | ffy_id,
+data = dat, cluster = ~ farm_field
+)
+
+Add timing windows × N (identified within FFY)
+
+m1 <- feols(
+yield ~ zN + zN2 +
+zN + zN2 +
+zN + zN2 +
+zN + zN2 +
+zN + zN2 +
+zN + zN2 | ffy_id,
+data = dat, cluster = ~ farm_field
+)
+
+Add soil/topo main effects + soil×N shape (cautious)
+
+m2 <- feols(
+yield ~ zN + zN2 +
+zWS + zCL + zSA + zSI + zSLP + zELV + zASP + zTPI +
+zN + zN2 + zN + zN2 | ffy_id,
+data = dat, cluster = ~ farm_field
+)
+
+Select timing×soil moderators on N shape (agronomy-guided, parsimonious)
+
+m3 <- feols(
+yield ~ zN + zN2 +
+zWS + zSLP + zTPI +
+zN + zN2 + zN + zN2 + zN + zN2 +
+# timing × soil on slope/steepness
+zN:(zP15) + zN2:(zP15) +
+zN:(zHR15) + zN2:(zHR15) +
+zN:(zG2) + zN2:(zG2) +
+zN:(zPS2) + zN2:(zPS2) | ffy_id,
+data = dat, cluster = ~ farm_field
+)
+
+```
+
+### Data diagnostics — why pooling/trees struggle
+
+```{r gof} 
+#| label: gof
+msummary(
+list(m0 = m0, m0_legacy = m0_legacy, m1 = m1, m2 = m2, m3 = m3),
+gof_map = tibble::tribble(
+~raw, ~clean, ~fmt,
+"r2_within", "Within R²", "%.3f",
+"r2", "Overall R²", "%.3f",
+"nobs", "N", "%.0f"
+),
+stars = TRUE
+)
+```

@@ -1,0 +1,146 @@
+---
+title: "Bayesian attribution of Yield–N curve shapes"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    theme: flatly
+    code-fold: true
+editor: visual
+---
+
+```{r setup, include=FALSE}
+library(here)
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+suppressPackageStartupMessages({
+  library(dplyr); library(tidyr); library(ggplot2)
+  library(readr); library(purrr); library(stringr)
+  library(brms)
+})
+source(here::here("Code/src/functions_for_bayesian.R"))
+
+```
+
+```{r load, include=FALSE}
+
+# LOLO artifacts where n_curves.csv live (one subdir per ffy_id)
+
+curves_dir <- here::here("Data","Processed","Models_LOLO")
+
+# Stacked analysis table (subplot-level; contains timing-weather, soils, topo)
+
+stacked_path <- here::here("Data","Processed","Analysis_ready","stacked_analysis_table.rds")
+stacked_df   <- readRDS(stacked_path)
+
+# Columns we rely on should exist (soft-check)
+
+head(names(stacked_df), 30)
+
+```
+
+# Build curve-feature table (per field–year)
+
+```{r curv , include=FALSE}
+
+features_tbl <- build_feature_table(curves_csv_dir = curves_dir,
+prefer = c("GAM","RF","XGB"),
+n_col = "n_rate")
+features_tbl %>% dplyr::glimpse()
+
+clu <- build_clue_table(stacked_df)
+clu$table %>% dplyr::glimpse()
+
+# Remember groups to compute N- vs Water-side driver scores later
+
+group_lists <- clu$groups
+
+```
+
+
+
+# Join features + clues and fit sparse Bayesian models
+
+
+```{r fit_model, include=FALSE}
+
+```{r fit_model, include=FALSE}
+# --- build brms data ----------------------------------------------------------
+dat <- make_brms_data(features_tbl, clu)
+
+# predictors = all clues except the ID column
+x_names <- setdiff(names(clu$table), "ffy_id")
+
+# --- clean NAs to avoid silent row drops --------------------------------------
+needed_cols <- unique(c(x_names, "plateau", "steep_low", "curv_log", "dY50"))
+dat <- dat |>
+  dplyr::filter(dplyr::if_all(dplyr::all_of(needed_cols), ~ !is.na(.)))
+
+# --- helpers ------------------------------------------------------------------
+prior_coefs <- function(pr) {
+  if (is.null(pr) || length(pr) == 0) return(character(0))
+  unique(stats::na.omit(as.data.frame(pr)$coef))
+}
+
+hs_for <- function(coefs) {
+  if (length(coefs) == 0) return(c())
+  do.call(c, lapply(coefs, function(cf)
+    prior(
+      horseshoe(df = 1, par_ratio = 0.1, scale_global = 0.5,
+                slab_df = 4, slab_scale = 1),
+      class = "b", coef = cf
+    )
+  ))
+}
+
+build_priors_no_dup <- function(resp, anchor_vec) {
+  fml_tmp <- as.formula(paste(resp, "~", paste(x_names, collapse = " + ")))
+  gp <- get_prior(fml_tmp, data = dat, family = gaussian())
+  beta_coefs <- gp$coef[gp$class == "b" & !is.na(gp$coef)]
+  acoefs <- prior_coefs(anchor_vec)
+  hs_targets <- setdiff(beta_coefs, acoefs)
+  c(prior(normal(0, 5), class = "Intercept"),
+    hs_for(hs_targets),
+    anchor_vec)
+}
+
+# anchors from your helper; set/override any feature-specific constraints
+anch <- sign_anchor_priors()
+anch$plateau <- c(
+  prior(normal(0, 1), class = "b", coef = "n_rate", lb = 0)
+)
+
+# --- build priors per feature -------------------------------------------------
+pri_plateau <- build_priors_no_dup("plateau",   anch$plateau)
+pri_steep   <- build_priors_no_dup("steep_low", anch$steep_low)
+pri_curv    <- build_priors_no_dup("curv_log",  anch$curv_log)
+pri_dY50    <- build_priors_no_dup("dY50",      anch$dY50)
+
+# --- formulas -----------------------------------------------------------------
+f_plateau <- as.formula(paste("plateau ~",   paste(x_names, collapse = " + ")))
+f_steep   <- as.formula(paste("steep_low ~", paste(x_names, collapse = " + ")))
+f_curv    <- as.formula(paste("curv_log ~",  paste(x_names, collapse = " + ")))
+f_dY50    <- as.formula(paste("dY50 ~",      paste(x_names, collapse = " + ")))
+
+# --- fit models directly with brm() to avoid wrapper re-injecting priors ------
+fit_plateau <- brm(
+  formula = f_plateau, data = dat, family = gaussian(),
+  prior = pri_plateau, iter = 1500, chains = 2, adapt_delta = 0.9
+)
+
+fit_steep <- brm(
+  formula = f_steep, data = dat, family = gaussian(),
+  prior = pri_steep, iter = 1500, chains = 2, adapt_delta = 0.9
+)
+
+fit_curv <- brm(
+  formula = f_curv, data = dat, family = gaussian(),
+  prior = pri_curv, iter = 1500, chains = 2, adapt_delta = 0.9
+)
+
+fit_dY50 <- brm(
+  formula = f_dY50, data = dat, family = gaussian(),
+  prior = pri_dY50, iter = 1500, chains = 2, adapt_delta = 0.9
+)
+
+summary(fit_steep)
+```
