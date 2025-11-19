@@ -1,0 +1,83 @@
+/* === Modern bs4_book Enhancements === */
+
+/* Sidebar background */
+#sidebar {
+  background-color: #0a3d62 !important;
+}
+
+/* Sidebar text */
+#sidebar .book-toc a {
+  color: #e8f6ff !important;
+  font-weight: 500;
+}
+
+/* Sidebar hover state */
+#sidebar .book-toc a:hover {
+  color: #0db9d7 !important;
+  font-weight: 600;
+}
+
+/* Active chapter highlight */
+#sidebar .active {
+  background-color: rgba(13, 185, 215, 0.15) !important;
+  border-left: 4px solid #0db9d7 !important;
+}
+
+/* Header title */
+h1, h2, h3, h4 {
+  color: #0a3d62 !important;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* Main link color */
+a {
+  color: #0db9d7 !important;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* Code blocks */
+pre code {
+  background-color: #f4f7fa !important;
+  border-left: 4px solid #0db9d7 !important;
+  padding-left: 12px;
+}
+
+/* Inline code */
+code {
+  background-color: #eef3f6 !important;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+/* Tables */
+table {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  margin-bottom: 1.5rem;
+}
+
+table th {
+  background-color: #0a3d62 !important;
+  color: #ffffff !important;
+  padding: 10px;
+}
+
+table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e6e6e6;
+}
+
+/* Chapter Title Block */
+.book-header .title {
+  color: #0a3d62 !important;
+  font-weight: 700;
+}
+
+/* Smooth transitions */
+* {
+  transition: all 0.2s ease;
+}

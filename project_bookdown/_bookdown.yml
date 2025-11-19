@@ -1,7 +1,9 @@
 book_filename: "value_multifield_ofpe"
 output_dir: "../docs"
 delete_merged_file: true
-
+language:
+  ui:
+    chapter_name: "Chapter "
 
 rmd_files:
   - index.Rmd

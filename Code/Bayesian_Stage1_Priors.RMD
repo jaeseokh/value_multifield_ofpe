@@ -49,32 +49,38 @@ library(modelsummary) # tables/plots
 df <- readRDS(file.path(dirs$data_processed, "stacked_analysis_table.rds"))
 
 dat <- df %>%
-mutate(
-farm_field = str_remove(ffy_id, "_[0-9]{4}$"),
-year = str_extract(ffy_id, "[0-9]{4}"),
-farm_field = factor(farm_field),
-year = factor(year)
-) %>%
-transmute(
-obs_id,
-ffy_id = factor(ffy_id),
-farm_field, year,
-yield, n_rate,
-# static soil/topo (vary within field in rasterized form)
-elev, slope, aspect, TPI, clay, sand, silt, water_storage,
-# seasonal totals (legacy)
-prcp_t = prcp_t, gdd_t = gdd_t, edd_t = edd_t,
-# timing windows
-precip_postN_d15, heavy_rain_days_postN_d15,
-gdd_S2, edd_S2, precip_S2
-) %>%
-filter(is.finite(yield), is.finite(n_rate)) %>%
-# trim extreme N rates per farm_field (±1.5 sd)
-group_by(farm_field) %>%
-mutate(n_mean = mean(n_rate), n_sd = sd(n_rate)) %>%
-ungroup() %>%
-filter(n_rate >= n_mean - 1.5n_sd, n_rate <= n_mean + 1.5n_sd) %>%
-dplyr::select(-n_mean, -n_sd) 
+  mutate(
+    farm_field = stringr::str_remove(ffy_id, "_[0-9]{4}$"),
+    year       = stringr::str_extract(ffy_id, "[0-9]{4}"),
+    farm_field = factor(farm_field),
+    year       = factor(year)
+  ) %>%
+  transmute(
+    obs_id,
+    ffy_id = factor(ffy_id),
+    farm_field, year,
+    yield, n_rate,
+    # static soil/topo
+    elev, slope, aspect, TPI, clay, sand, silt, water_storage,
+    # seasonal totals (legacy)
+    prcp_t, gdd_t, edd_t,
+    # timing windows
+    precip_postN_d15, heavy_rain_days_postN_d15,
+    gdd_S2, edd_S2, precip_S2
+  ) %>%
+  filter(is.finite(yield), is.finite(n_rate)) %>%
+  # trim extreme N rates per farm_field (±1.5 sd)
+  group_by(farm_field) %>%
+  mutate(
+    n_mean = mean(n_rate, na.rm = TRUE),
+    n_sd   = sd(n_rate, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  filter(
+    n_rate >= n_mean - 1.5 * n_sd,
+    n_rate <= n_mean + 1.5 * n_sd
+  ) %>%
+  select(-n_mean, -n_sd)
 glue::glue("Sample: {nrow(dat)} observations, {dplyr::n_distinct(dat$ffy_id)} field-years, {dplyr::n_distinct(dat$farm_field)} fields.")
 
 ```
@@ -109,18 +115,18 @@ zSLP = z(slope), zELV = z(elev), zASP = z(aspect), zTPI = z(TPI)
 
 ### Model ladder (FFY fixed effects; cluster by farm_field)
 
-```{r quadratic} 
+```{r models} 
 
 #| label: models
 
-Baseline: N shape only + FFY FE
+# Baseline: N shape only + FFY FE
 
 m0 <- feols(
 yield ~ zN + zN2 | ffy_id,
 data = dat, cluster = ~ farm_field
 )
 
-Add legacy totals × N to compare with your prior spec
+# Add legacy totals × N to compare with your prior spec
 
 m0_legacy <- feols(
 yield ~ zN + zN2 +
@@ -130,7 +136,7 @@ zN + zN2 | ffy_id,
 data = dat, cluster = ~ farm_field
 )
 
-Add timing windows × N (identified within FFY)
+# Add timing windows × N (identified within FFY)
 
 m1 <- feols(
 yield ~ zN + zN2 +
@@ -142,7 +148,7 @@ zN + zN2 | ffy_id,
 data = dat, cluster = ~ farm_field
 )
 
-Add soil/topo main effects + soil×N shape (cautious)
+# Add soil/topo main effects + soil×N shape (cautious)
 
 m2 <- feols(
 yield ~ zN + zN2 +
@@ -151,7 +157,7 @@ zN + zN2 + zN + zN2 | ffy_id,
 data = dat, cluster = ~ farm_field
 )
 
-Select timing×soil moderators on N shape (agronomy-guided, parsimonious)
+# Select timing×soil moderators on N shape (agronomy-guided, parsimonious)
 
 m3 <- feols(
 yield ~ zN + zN2 +
@@ -168,6 +174,18 @@ data = dat, cluster = ~ farm_field
 ```
 
 ### Data diagnostics — why pooling/trees struggle
+
+```{r compare} 
+#| label: compare
+etable(m0, m0_legacy, m1, m2, m3, se = "cluster",
+dict = c(zN="N (z)", zN2="N^2 (z)",
+"zN"="N×postN15", "zN2"="N^2×postN15",
+"zN"="N×GDD_S2", "zN2"="N^2×GDD_S2"),
+keep = "^(zN|zN2|zWS|zSLP|zTPI|zCL|zSA|zSI|zELV|zASP|:)"
+)
+
+```
+
 
 ```{r gof} 
 #| label: gof

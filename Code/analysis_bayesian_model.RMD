@@ -63,7 +63,6 @@ group_lists <- clu$groups
 
 ```{r fit_model, include=FALSE}
 
-```{r fit_model, include=FALSE}
 # --- build brms data ----------------------------------------------------------
 dat <- make_brms_data(features_tbl, clu)
 
@@ -143,4 +142,5 @@ fit_dY50 <- brm(
 )
 
 summary(fit_steep)
+
 ```

@@ -1,17 +1,19 @@
-bookdown::gitbook:
-  css: null
-  config:
-    toc:
-      collapse: subsection
-      before: |
-        <li><a href="./">OFPE, APSIM, and Bayesian N Priors</a></li>
-    edit: false
-    download: ["pdf"]
-bookdown::pdf_book:
+bookdown::bs4_book:
+  theme:
+    primary: "#0db9d7"      # Accent color (cyan)
+    secondary: "#0a3d62"    # Sidebar and header tint
+    base_font:
+      google:
+        family: Inter
+    heading_font:
+      google:
+        family: Poppins
+        wght: 600
+    code_font:
+      google:
+        family: JetBrains Mono
+    bg: "#ffffff"           # Background
+    fg: "#1c1c1c"           # Text color
   includes:
-    in_header: null
-  latex_engine: xelatex
-  citation_package: natbib
-  keep_tex: false
-bookdown::html_book:
-  theme: default
+    in_header: header.html
+  css: style.css

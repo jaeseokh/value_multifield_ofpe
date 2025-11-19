@@ -1,0 +1,301 @@
+---
+title: "Data Processing — OFPE Analysis-Ready Build"
+subtitle: "Soils, Topography, and Timing-Specific Weather"
+author: "(pipeline orchestration)"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+execute:
+  echo: true
+  message: true
+  warning: true
+---
+
+```{r setup}
+#| label: setup
+#| include: false
+library(here)
+knitr::opts_chunk$set(message = TRUE, warning = TRUE)
+source("Code/src/functions_for_processing.R")
+```
+
+## 1. Configuration & Inputs
+
+```{r config}
+# Manually define parameters here (previously in YAML params)
+base_dir <- here::here("Data","Raw")
+out_dir  <- here::here("Data","Processed","Analysis_ready")
+elev_z   <- 14
+crs_out  <- 4326
+ffy_ids  <- NULL  # Optional subset of field-year IDs; if NULL, auto-discover
+
+# Date manifest: must contain ffy_id, s_time, n_time, yield_time
+# Adjust path to your actual manifest file (RDS or CSV). Here we assume RDS.
+trial_info_path <- here::here("Data","Raw","date_product_info.rds")
+if (!file.exists(trial_info_path)) stop("Missing trial info at ", trial_info_path)
+
+trial_info <- readRDS(trial_info_path)
+
+trial_clean <- trial_info %>%
+  mutate(
+    farm  = str_extract(ffy_id, "^[0-9]+"),
+    field = str_extract(ffy_id, "(?<=_)[0-9]+(?=_)"),
+    year  = str_extract(ffy_id, "[0-9]{4}$")
+  ) %>%
+  mutate(across(c(farm, field, year), as.integer)) %>%
+  dplyr::select(farm, field, year, everything()) %>%
+  arrange(farm, field, year)
+
+# 2. Define “complete information” status ------------------------------
+# (You can adjust which variables count as required)
+trial_clean <- trial_clean %>%
+  mutate(
+    complete_info = if_else(
+      !is.na(yield_time) &
+      !is.na(n_time) &
+      !is.na(s_time) &
+      !is.na(yield_product) &
+      !is.na(n_product) &
+      !is.na(s_product),
+      "Yes", "No"
+    )
+  )
+
+# 3. Produce a clean one-page summary table ----------------------------
+trial_summary <- trial_clean %>%
+  dplyr::select(farm, field, year,
+         yield_time, n_time, s_time,
+         yield_product, n_product, s_product,
+         complete_info)
+
+trial_summary
+
+
+library(gridExtra)
+library(ggplot2)
+# Convert table to a data frame limited to ~25 rows per page
+library(flextable)
+library(officer)
+library(lubridate)
+# Create flextable
+ft <- flextable(trial_summary)
+
+# Autofit columns and reduce font for PDF
+ft <- ft %>%
+  autofit() %>%
+  fontsize(size = 7) %>%       # smaller font so it fits better
+  align(align = "center", part = "all") %>%
+  theme_vanilla()
+
+count_all_three <- trial_summary %>%
+  summarise(
+    all_three_nonNA = sum(
+      !is.na(yield_time) &
+      !is.na(n_time) &
+      !is.na(s_time)
+    )
+  )
+
+count_all_three
+
+complete49 <- trial_summary %>%
+  filter(
+    !is.na(yield_time),
+    !is.na(n_time),
+    !is.na(s_time)
+  )
+
+field_counts <- complete49 %>%
+  count(farm, field, name = "n_years_per_field") %>%
+  arrange(desc(n_years_per_field))
+
+field_counts
+
+farm_counts <- complete49 %>%
+  count(farm, name = "n_years_per_farm") %>%
+  arrange(desc(n_years_per_farm))
+
+farm_counts
+
+summary_list <- list(
+  total_complete_rows = nrow(complete49),
+  unique_farm_fields  = n_distinct(complete49$farm, complete49$field),
+  farm_field_counts   = field_counts,
+  farm_counts         = farm_counts
+)
+
+summary_list
+
+
+
+# Discover field-year IDs if not provided
+ids <- read_trial_lists(base_dir)
+all_ids <- intersect(ids$data_ids, ids$bdry_ids)
+if (is.null(ffy_ids)) {
+  ffy_ids <- all_ids
+} else {
+  ffy_ids <- intersect(ffy_ids, all_ids)
+}
+
+if (!length(ffy_ids)) stop("No usable ffy_ids found.")
+
+# Optional: exclude known problematic trials (edit as needed)
+bad_ids <- c("15_1_2023","15_2_2023","15_3_2023","27_1_2023","9_1_2022","9_2_2022")
+ffy_ids <- setdiff(ffy_ids, bad_ids)
+
+```
+
+## 2. Build Per-Field Datasets (Soils → Topography → Weather)
+
+```{r build-loop}
+
+per_field <- vector("list", length(ffy_ids)); names(per_field) <- ffy_ids
+for (i in seq_along(ffy_ids)) {
+  id <- ffy_ids[[i]]
+  log_message(sprintf("[%d/%d] %s", i, length(ffy_ids), id))
+  per_field[[i]] <- build_field_dataset(
+    ffy_id       = id,
+    base_dir     = base_dir,
+    date_manifest = date_manifest,
+    cache_dir    = out_dir,
+    elev_z       = elev_z,
+    crs_out      = crs_out
+  )
+}
+```
+
+## 3. Stack, Validate, and Persist Outputs
+
+```{r stack-validate-save}
+
+# Stack attributes (geometry is not stacked here to keep a flat rectangular table)
+
+stacked <- stack_fields(per_field)
+
+# Minimal diagnostics
+cat("\nRows:", nrow(stacked), " Cols:", ncol(stacked),"\n")
+cat("CRS of first sf object:", sf::st_crs(per_field[[1]])$epsg, "\n")
+
+# NA check for key variables (edit these names to match your schema)
+key_vars <- c("yield", "n_rate", "s_rate", "clay", "sand", "silt", "water_storage",
+              "elev", "slope", "aspect", "TPI",
+              "precip_N_to_yield", "gdd_N_to_yield", "heavy_rain_days_postN_d15")
+iss <- intersect(key_vars, names(stacked))
+if (length(iss)) {
+  na_rate <- sapply(stacked[, iss, drop=FALSE], function(x) mean(is.na(x)))
+  print(sort(na_rate, decreasing = TRUE))
+}
+
+# Persist
+save_processed(per_field, fname = "by_field_list.rds", out_dir = out_dir)
+save_processed(stacked,   fname = "stacked_analysis_table.rds", out_dir = out_dir)
+
+
+```
+
+# ------------------------------------------------------------
+# 1. Example: define growth stage for each date (you adapt this)
+# ------------------------------------------------------------
+
+
+```{r growth stage}
+
+
+
+# Suppose you have planting and harvest dates per field-year
+# and you split the season into 4 equal-length stages.
+stage_breaks <- trial_info %>%
+  mutate(
+    year = year(yield_time),  # or another year logic
+    start = s_time,           # sowing date
+    end   = yield_time
+  ) %>%
+  mutate(
+    n_days = as.numeric(end - start),
+    b1 = start + floor(0.25 * n_days),
+    b2 = start + floor(0.50 * n_days),
+    b3 = start + floor(0.75 * n_days)
+  ) %>%
+  select(farm_field, year, start, b1, b2, b3, end)
+
+# helper to label stage for each date
+label_stage <- function(d, start, b1, b2, b3, end) {
+  case_when(
+    d >= start & d < b1 ~ "S1",
+    d >= b1    & d < b2 ~ "S2",
+    d >= b2    & d < b3 ~ "S3",
+    d >= b3    & d <= end ~ "S4",
+    TRUE ~ NA_character_
+  )
+}
+
+# ------------------------------------------------------------
+# 2. Attach stage labels and compute annual indices
+# ------------------------------------------------------------
+
+wx_with_stage <- wx_daily %>%
+  # assume wx_daily has farm_field and date
+  mutate(year = year(date)) %>%
+  left_join(stage_breaks, by = c("farm_field", "year")) %>%
+  rowwise() %>%
+  mutate(stage = label_stage(date, start, b1, b2, b3, end)) %>%
+  ungroup() %>%
+  filter(!is.na(stage))
+
+# define indicator of heavy-rain day
+heavy_thresh <- 25  # mm, adjust to your agronomic threshold
+
+wx_indices <- wx_with_stage %>%
+  group_by(farm_field, year, stage) %>%
+  summarise(
+    precip_sum = sum(precip, na.rm = TRUE),
+    dry_days   = sum(precip < 1, na.rm = TRUE),
+    max_dry_spell = {
+      r <- rle(precip < 1)
+      if (any(r$values)) max(r$lengths[r$values]) else 0
+    },
+    heavy_rain_days = sum(precip >= heavy_thresh, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# focus on key stages S2 and S3 for water availability
+wb_by_year <- wx_indices %>%
+  filter(stage %in% c("S2", "S3")) %>%
+  group_by(farm_field, year) %>%
+  summarise(
+    WB = sum(precip_sum, na.rm = TRUE),
+    max_dry_S2 = max(max_dry_spell[stage == "S2"], na.rm = TRUE),
+    heavy_S2   = sum(heavy_rain_days[stage == "S2"], na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# ------------------------------------------------------------
+# 3. Compute field-specific percentiles and classify regimes
+# ------------------------------------------------------------
+
+label_regime <- function(q_wb, q_dry, q_heavy,
+                         wb_lo = 0.3, wb_hi = 0.7,
+                         dry_hi = 0.7, heavy_hi = 0.7) {
+  case_when(
+    q_wb < wb_lo & q_dry > dry_hi   ~ "dry",
+    q_wb > wb_hi & q_heavy > heavy_hi ~ "wet",
+    TRUE                             ~ "normal"
+  )
+}
+
+weather_regimes <- wb_by_year %>%
+  group_by(farm_field) %>%
+  mutate(
+    q_WB   = rank(WB, ties.method = "average") / (n() + 1),
+    q_dry  = rank(max_dry_S2, ties.method = "average") / (n() + 1),
+    q_heavy = rank(heavy_S2,  ties.method = "average") / (n() + 1),
+    regime = label_regime(q_WB, q_dry, q_heavy)
+  ) %>%
+  ungroup()
+
+# 'weather_regimes' now has: farm_field, year, WB, max_dry_S2, heavy_S2, q_WB, q_dry, q_heavy, regime
+
+```
+

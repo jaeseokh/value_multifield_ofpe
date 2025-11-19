@@ -1,0 +1,402 @@
+---
+title: "Stage 0 — APSIM-Based Priors & Soil Class Mapping"
+author: "Jaeseok Hwang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+  pdf:
+    toc: true
+    number-sections: true
+editor_options:
+  chunk_output_type: console
+---
+
+# 0. Purpose
+
+This Stage 0 document does two things:
+
+1. **Assign each OFPE field to a small set of representative APSIM soil classes (A–E)**  
+   using SSURGO-style texture and water-holding information plus topography.
+
+2. **Build APSIM-based prior distributions for yield–N curve features**  
+   (plateau, steepness, curvature, EONR proxy) by soil class and weather regime  
+   from APSIM simulations (either pre-computed and read from CSV/RDS, or generated via `apsimx`).
+
+The outputs of this RMD will be used later to set **prior centers, scales, and directional anchors** for the Bayesian feature model.
+
+
+## 1. Setup & Reproducibility
+
+```{r setup}
+
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE, error = FALSE,
+  fig.align = "center", fig.width = 7, fig.height = 4.5, dpi = 200,
+  collapse = TRUE, comment = "#>"
+)
+options(scipen = 999, dplyr.summarise.inform = FALSE)
+
+suppressPackageStartupMessages({
+  library(dplyr);   library(tidyr);   library(readr);   library(stringr)
+  library(ggplot2); library(purrr);   library(glue)
+  library(here);    library(broom)
+})
+
+
+proj <- here::here()
+
+dirs <- list(
+data_processed = file.path(proj, "Data", "Processed"),
+data_external  = file.path(proj, "Data", "External", "APSIM"),
+figs           = file.path(proj, "Results", "Figures", "stage0"),
+tabs           = file.path(proj, "Results", "Tables",  "stage0"),
+priors         = file.path(proj, "Results", "Priors",  "stage0")
+)
+
+invisible(lapply(dirs, dir.create, recursive = TRUE, showWarnings = FALSE))
+
+
+```
+
+
+# Link R to APSIM via apsimx 
+
+# Only run this if you want to call APSIM from R in this project
+```{r apsimx}
+install.packages("apsimx")  # skip if already installed
+library(apsimx)
+
+apsimx_options(
+exe.path = "/Applications/APSIM2025.11.7927.0.app/Contents/MacOS/ApsimNG"
+)
+
+# quick sanity check
+
+apsimx_help()
+
+# tiny built-in example: should return a small data.frame
+
+example_file <- system.file("extdata", "Wheat.apsimx", package = "apsimx")
+out_demo <- apsimx_sim(example_file, silent = FALSE)
+head(out_demo)
+
+#  Later, create a separate script that runs APSIM for soil-classes × N-grid × weather years and saves:
+
+# Data/External/APSIM/apsim_yieldN_summary.csv
+
+# which this Stage 0 RMD will then read in Section 6.
+
+```
+
+# Load OFPE Field-Level Data
+
+```{r load}
+
+data_path <- file.path(
+dirs$data_processed,
+"Analysis_ready",
+"stacked_analysis_table.rds"
+)
+
+df <- readRDS(data_path)
+
+names(df)
+
+# Aggregate to farm_field level for mapping to APSIM soil classes
+
+ofpe_field <- df %>%
+mutate(
+farm_field = stringr::str_remove(ffy_id, "_[0-9]{4}$")
+) %>%
+group_by(farm_field) %>%
+summarise(
+clay          = mean(clay,           na.rm = TRUE),
+sand          = mean(sand,           na.rm = TRUE),
+silt          = mean(silt,           na.rm = TRUE),
+water_storage = mean(water_storage,  na.rm = TRUE),
+slope         = mean(slope,          na.rm = TRUE),
+TPI           = mean(TPI,            na.rm = TRUE),
+elev          = mean(elev,           na.rm = TRUE),
+.groups       = "drop"
+)
+
+summary(ofpe_field)
+```
+
+# Thresholds for Soil-Class Rules
+
+```{r sol thr}
+
+thr <- list(
+CLAY_HIGH   = quantile(ofpe_field$clay,          probs = 0.67, na.rm = TRUE),
+SAND_HIGH   = quantile(ofpe_field$sand,          probs = 0.67, na.rm = TRUE),
+WS_HIGH     = quantile(ofpe_field$water_storage, probs = 0.67, na.rm = TRUE),
+WS_LOW      = quantile(ofpe_field$water_storage, probs = 0.33, na.rm = TRUE),
+WS_ORG_HIGH = quantile(ofpe_field$water_storage, probs = 0.95, na.rm = TRUE),
+SLOPE_LOW   = 2,
+SLOPE_MED   = 4,
+TPI_LOW     = quantile(ofpe_field$TPI,           probs = 0.25, na.rm = TRUE)
+)
+
+thr
+
+# If you later add drainage_class or hydgrp, you can extend the rule set.
+
+
+
+```
+
+# Rule-Based APSIM Soil-Class Assignment (A–E)
+
+```{r soil assign}
+
+assign_apsim_class <- function(clay, sand, water_storage, slope, TPI, thresholds) {
+
+with(thresholds, {
+
+# 1. Organic-rich / special (Class E)
+if (!is.na(water_storage) && water_storage > WS_ORG_HIGH) {
+  return("E")
+}
+
+# 2. Coarse-textured, low water-holding (Class D)
+if (!is.na(sand) && !is.na(water_storage) &&
+    sand >= SAND_HIGH && water_storage <= WS_LOW) {
+  return("D")
+}
+
+# 3. Heavy, wet depressions (Class A)
+if (!is.na(clay) && !is.na(water_storage) && !is.na(slope) && !is.na(TPI) &&
+    clay >= CLAY_HIGH && water_storage >= WS_HIGH &&
+    slope <= SLOPE_LOW && TPI <= TPI_LOW) {
+  return("A")
+}
+
+# 4. Fine-textured uplands (Class C)
+if (!is.na(clay) && clay >= CLAY_HIGH &&
+    !is.na(slope) && (slope >= SLOPE_MED || TPI >= 0)) {
+  return("C")
+}
+
+# 5. Default: medium-textured, moderately well-drained (Class B)
+return("B")
+})
+}
+
+
+ofpe_field_classes <- ofpe_field %>%
+rowwise() %>%
+mutate(
+apsim_soil_class = assign_apsim_class(
+clay          = clay,
+sand          = sand,
+water_storage = water_storage,
+slope         = slope,
+TPI           = TPI,
+thresholds    = thr
+)
+) %>%
+ungroup()
+
+table(ofpe_field_classes$apsim_soil_class)
+
+write_csv(
+ofpe_field_classes,
+file.path(dirs$tabs, "ofpe_field_apsim_soil_classes.csv")
+)
+
+
+```
+
+# Load APSIM Yield–N Simulation Summary
+
+# Here we assume you have already created a file like
+# Data/External/APSIM/apsim_yieldN_summary.csv
+# (either by running APSIM externally or via apsimx in a separate script).
+
+```{r apsim summary}
+
+apsim_path <- file.path(dirs$data_external, "apsim_yieldN_summary.csv")
+
+if (file.exists(apsim_path)) {
+apsim <- read_csv(apsim_path, show_col_types = FALSE)
+} else {
+warning("APSIM summary file not found at: ", apsim_path,
+"\nUsing a placeholder empty tibble.")
+apsim <- tibble()
+}
+
+glimpse(apsim)
+```
+
+
+### Expected minimal columns:
+- apsim_soil_class (A–E)
+- location_id (or site_id)
+- year
+- N_rate (kg/ha)
+- yield (t/ha or bu/ac)
+- (optional) timing/weather indices (precip_S1..S4, dry_days_S2, max_dry_spell_S2, heavy_rain_days_postN_d15, …)
+
+
+# Extract Yield–N Curve Features From APSIM
+
+```{r expected yield-N}
+extract_quad_features <- function(df_group) {
+
+# df_group: data for one soil_class × location × year
+
+if (nrow(df_group) < 4 || dplyr::n_distinct(df_group$N_rate) < 3) {
+return(tibble(
+beta0 = NA_real_, beta1 = NA_real_, beta2 = NA_real_,
+curvature = NA_real_, peak_N = NA_real_, plateau_y = NA_real_
+))
+}
+
+m <- try(lm(yield ~ N_rate + I(N_rate^2), data = df_group), silent = TRUE)
+if (inherits(m, "try-error")) {
+return(tibble(
+beta0 = NA_real_, beta1 = NA_real_, beta2 = NA_real_,
+curvature = NA_real_, peak_N = NA_real_, plateau_y = NA_real_
+))
+}
+
+cf    <- coef(m)
+beta0 <- unname(cf["(Intercept)"])
+beta1 <- unname(cf["N_rate"])
+beta2 <- unname(cf["I(N_rate^2)"])
+
+curvature <- beta2
+peak_N    <- if (!is.na(beta2) && beta2 < 0) -beta1 / (2 * beta2) else NA_real_
+
+# plateau_y: predicted yield at peak_N if concave and within range;
+
+# otherwise max fitted in the observed range.
+
+if (!is.na(peak_N) &&
+peak_N >= min(df_group$N_rate, na.rm = TRUE) &&
+peak_N <= max(df_group$N_rate, na.rm = TRUE)) {
+
+plateau_y <- beta0 + beta1 * peak_N + beta2 * peak_N^2
+
+} else {
+N_grid <- df_group$N_rate
+y_hat  <- beta0 + beta1 * N_grid + beta2 * N_grid^2
+plateau_y <- max(y_hat, na.rm = TRUE)
+peak_N    <- N_grid[which.max(y_hat)]
+}
+
+tibble(
+beta0 = beta0, beta1 = beta1, beta2 = beta2,
+curvature = curvature, peak_N = peak_N, plateau_y = plateau_y
+)
+}
+
+
+if (nrow(apsim) > 0) {
+
+apsim_feat <- apsim %>%
+group_by(apsim_soil_class, location_id, year) %>%
+group_modify(~ bind_cols(
+.x %>%
+summarise(
+N_min   = min(N_rate, na.rm = TRUE),
+N_max   = max(N_rate, na.rm = TRUE),
+.groups = "drop"
+),
+extract_quad_features(.x)
+)) %>%
+ungroup()
+
+summary(apsim_feat)
+
+write_csv(
+apsim_feat,
+file.path(dirs$tabs, "apsim_yieldN_features_quad.csv")
+)
+
+} else {
+apsim_feat <- tibble()
+}
+
+
+```
+
+# Construct APSIM-Based Priors for Features
+
+```{r prior}
+if (nrow(apsim_feat) > 0) {
+
+priors_overall <- apsim_feat %>%
+summarise(
+curvature_med = median(curvature, na.rm = TRUE),
+curvature_iqr = IQR(curvature,    na.rm = TRUE),
+peakN_med     = median(peak_N,    na.rm = TRUE),
+peakN_iqr     = IQR(peak_N,       na.rm = TRUE),
+plateau_med   = median(plateau_y, na.rm = TRUE),
+plateau_iqr   = IQR(plateau_y,    na.rm = TRUE)
+)
+
+priors_by_soil <- apsim_feat %>%
+group_by(apsim_soil_class) %>%
+summarise(
+curvature_med = median(curvature, na.rm = TRUE),
+curvature_iqr = IQR(curvature,    na.rm = TRUE),
+peakN_med     = median(peak_N,    na.rm = TRUE),
+peakN_iqr     = IQR(peak_N,       na.rm = TRUE),
+plateau_med   = median(plateau_y, na.rm = TRUE),
+plateau_iqr   = IQR(plateau_y,    na.rm = TRUE),
+.groups       = "drop"
+)
+
+priors_overall
+priors_by_soil
+
+saveRDS(
+priors_overall,
+file.path(dirs$priors, "apsim_prior_overall_quad.rds")
+)
+saveRDS(
+priors_by_soil,
+file.path(dirs$priors, "apsim_prior_by_soil_quad.rds")
+)
+}
+```
+
+
+# Timing-Effect Direction From APSIM
+
+```{r timing-effect}
+if (nrow(apsim) > 0 && all(c("precip_S2", "precip_S3") %in% names(apsim))) {
+
+apsim_with_feat <- apsim %>%
+group_by(apsim_soil_class, location_id, year) %>%
+nest() %>%
+left_join(
+apsim_feat,
+by = c("apsim_soil_class", "location_id", "year")
+)
+
+timing_data <- apsim_with_feat %>%
+select(apsim_soil_class, location_id, year, plateau_y, data) %>%
+unnest(cols = c(data)) %>%
+distinct(
+apsim_soil_class, location_id, year, plateau_y,
+precip_S2, precip_S3
+)
+
+m_timing <- lm(plateau_y ~ precip_S2 + precip_S3, data = timing_data)
+summary(m_timing)
+
+timing_coefs <- broom::tidy(m_timing)
+
+write_csv(
+timing_coefs,
+file.path(dirs$tabs, "apsim_timing_effects_plateau.csv")
+)
+}
+
+```

@@ -1,21 +1,38 @@
 ---
-title: "Tree Models — Leave-One-Location-Out (LOLO)"
-format:
-  html:
+title: "1. Tree-based yield–N prediction and its limitations"
+author: "Jaeseok Hwang"
+date: "`r Sys.Date()`"
+output:
+  html_document:
     toc: true
-    toc-depth: 3
+    toc_depth: 2
 ---
 
 ```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  message   = FALSE,
+  warning   = FALSE,
+  fig.align = "center",
+  fig.width = 7,
+  fig.height = 5,
+  dpi       = 300
+)
+
 library(here)
-knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(purrr)
+library(readr)
+library(data.table)
+library(stringr)
 
-suppressPackageStartupMessages({
-  library(dplyr); library(tidyr); library(ggplot2); library(purrr); library(readr)
-})
+source(here("Code","src","functions_for_processing.R"))
+source(here("Code","src","functions_tree_model.R"))
 
-source(here::here("Code/src/functions_for_trees.R"))
-## Config (set parameters)
+analysis_dir <- here("Data","Processed","Analysis_ready")
+dir.create(analysis_dir, recursive = TRUE, showWarnings = FALSE)
+
 ```
 
 
@@ -104,6 +121,7 @@ df0 <- readRDS(data_path)
 stopifnot(y_var %in% names(df0), n_col %in% names(df0))
 stopifnot(all(x_vars %in% names(df0)))
 
+# Remove outliers (unreliable range)
 n_vals <- df0[[n_col]]
 n_mu   <- mean(n_vals, na.rm = TRUE)
 n_sd   <- sd(n_vals,   na.rm = TRUE)
@@ -159,7 +177,7 @@ holdouts_three <- holdout_table %>%
 
 ```
 
-## Save artifacts & compute EONR
+## Helpers for saving artifacts & EONR
 
 ```{r helpers}
 
@@ -301,6 +319,5 @@ if (!is.null(res$gam)) {
 
   print(eonr_tbl %>% dplyr::arrange(model, scenario_id))
 }
-
 
 ```

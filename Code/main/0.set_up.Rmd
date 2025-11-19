@@ -1,0 +1,291 @@
+---
+title: "0. Set-up and Field Coverage"
+author: "Jaeseok Hwang"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 7,
+  fig.height = 5,
+  dpi = 300
+)
+
+library(here)
+
+# Source project functions (adjust path if needed)
+source(here("Code", "src", "functions_for_processing.R"))
+source(here("Code", "src", "functions_tree_model.R"))
+source(here("Code", "src", "functions_bayes_priors.R"))
+source(here("Code", "src", "functions_bayes_model.R"))
+
+analysis_dir <- here("Data", "Processed", "Analysis_ready")
+
+dir.create(analysis_dir, recursive = TRUE, showWarnings = FALSE)
+
+```
+
+
+# Packages and helpers
+
+```{r packages, cache = T, results = "hide"}
+
+required_packages <- c(
+
+# core
+
+"dplyr", "tidyr", "purrr", "data.table", "stringr",
+"readr", "lubridate",
+
+# spatial
+
+"sf", "terra", "raster",
+
+# plotting
+
+"ggplot2"
+)
+
+missing_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
+if (length(missing_packages) > 0) {
+install.packages(missing_packages)
+}
+
+invisible(lapply(required_packages, library, character.only = TRUE))
+
+set.seed(1234)
+
+# helper to unite crs
+
+st_set_4326 <- function(x) {
+if (is.na(sf::st_crs(x))) {
+x <- sf::st_set_crs(x, 4326)
+message("⚠️ set missing CRS to EPSG:4326")
+}
+x
+}
+
+```
+
+
+# Historical Price information: corn and nitrogen
+
+```{r price info, cache = T, results = "hide"}
+
+# 1. Corn price received by year
+
+corn_price_raw <- data.table::fread(here("Data","Raw","corn_price_received_by_year.csv"))
+
+corn_price_tab <- corn_price_raw[
+Period == "MARKETING YEAR",
+.(Year, Value)
+]
+
+data.table::setnames(corn_price_tab, "Value", "corn")
+
+# 2. Nitrogen price (N-equivalent) by year
+
+n_price_raw <- data.table::fread(here("Data","Raw","nitrogen_fertilizer_prices.csv"))
+
+
+# Rename columns to clean names
+setnames(
+  n_price_raw,
+  old = c("Anhydrous Ammonia ($/lb N)",
+          "Urea ($/lb N)",
+          "UAN28 ($/lb N)",
+          "UAN32 ($/lb N)"),
+  new = c("Anhydrous","Urea","UAN28","UAN32")
+)
+
+# Keep 2016–2023 and build average N price
+n_price_tab <- n_price_raw[
+  Year >= 2016 & Year <= 2023,
+  .(
+    Year,
+    UAN32,
+    UAN28,
+    Anhydrous,
+    Urea,
+    nitrogen = rowMeans(.SD, na.rm = TRUE)  # average $/lb N
+  ),
+  .SDcols = c("UAN32","UAN28","Anhydrous","Urea")
+]
+
+
+# 3. Merge and clean
+
+price_tab <- merge(
+  corn_price_tab, 
+  n_price_tab,
+  by = "Year",
+  all.x = TRUE
+)
+
+price_tab
+
+saveRDS(price_tab, file = file.path(analysis_dir, "price_tab.rds"))
+
+```
+
+
+# Field boundaries, centroids, and state coverage
+
+
+```{r mapping, cache = T, results = "hide"}
+
+# 3.1 US state map
+
+us_map_sf <- sf::st_read(here("Data","Raw","us_state_2023.shp"), quiet = TRUE) |>
+sf::st_transform(4326)
+
+# 3.2 OFPE states (FIPS)
+
+ofpe_fips <- c(17, 18, 19, 20, 21, 26, 27, 29, 31, 38, 39, 46, 55)
+
+ofpe_states_sf <- us_map_sf %>%
+  dplyr::rename_with(tolower) %>%          # safe, pipe-friendly
+  dplyr::filter(statefp %in% ofpe_fips) %>%
+  dplyr::mutate(fips = as.numeric(statefp)) %>%
+  dplyr::select(fips, stusps, geometry)
+
+# 3.3 Read all boundary files and build one sf with centroid per field-year
+
+bdry_dir <- here("Data","Raw","exp_bdry_data")
+
+bdry_ids <- list.files(bdry_dir, pattern = "_bdry\\.rds$") |>
+  stringr::str_remove("_bdry\\.rds$")
+
+if (length(bdry_ids) == 0) {
+stop("No boundary files found in ", bdry_dir)
+}
+
+boundary_list <- purrr::map(bdry_ids, function(id) {
+bd <- readRDS(file.path(bdry_dir, paste0(id, "_bdry.rds")))
+bd <- st_set_4326(bd)
+sf::st_sf(ffy_id = id, geometry = sf::st_geometry(bd))
+})
+
+field_bdry_sf <- do.call(rbind, boundary_list) |>
+sf::st_transform(4326)
+
+# centroids for plotting and spatial join
+
+field_centroids_sf <- field_bdry_sf |>
+sf::st_centroid()
+
+# parse farm, field, year from ffy_id
+
+field_centroids_sf <- field_centroids_sf %>%
+  dplyr::mutate(
+    parts = stringr::str_split(ffy_id, "_", simplify = TRUE),
+    farm  = as.integer(parts[, 1]),
+    field = as.integer(parts[, 2]),
+    year  = as.integer(parts[, 3])
+  ) %>%
+  dplyr::select(-parts)
+
+# attach state info
+
+field_centroids_sf <- sf::st_join(field_centroids_sf, ofpe_states_sf, join = sf::st_within)
+
+# table (no geometry) for later summaries
+
+field_loc2 <- field_centroids_sf |>
+sf::st_drop_geometry()
+
+# 3.4 Summaries
+
+by_ff <- field_loc2 |>
+dplyr::group_by(stusps, farm, field) |>
+dplyr::summarise(
+n_years = dplyr::n_distinct(year),
+.groups = "drop"
+)
+
+state_summary <- by_ff |>
+dplyr::group_by(stusps) |>
+dplyr::summarise(
+n_trials_total    = sum(n_years),
+n_farm_field      = dplyr::n(),
+n_repl_farm_field = sum(n_years > 1),
+.groups = "drop"
+) |>
+dplyr::arrange(stusps)
+
+state_summary
+
+# Illinois-only
+
+il_by_ff <- by_ff |>
+dplyr::filter(stusps == "IL")
+
+il_summary <- il_by_ff |>
+dplyr::summarise(
+n_trials_total    = sum(n_years),
+n_farm_field      = dplyr::n(),
+n_repl_farm_field = sum(n_years > 1)
+)
+
+il_by_ff
+il_summary
+
+# Save objects for other Rmds
+
+saveRDS(field_loc2,      file = file.path(analysis_dir, "field_loc2.rds"))
+saveRDS(state_summary,   file = file.path(analysis_dir, "state_summary.rds"))
+saveRDS(il_by_ff,        file = file.path(analysis_dir, "il_by_ff.rds"))
+saveRDS(il_summary,      file = file.path(analysis_dir, "il_summary.rds"))
+saveRDS(field_centroids_sf, file = file.path(analysis_dir, "field_centroids_sf.rds"))
+
+```
+
+
+# Figure 1 – Ambiguous map of all fields in the Midwest
+
+```{r fig1, cache = T, results = "hide"}
+
+# Coarsen coordinates to make locations less precise
+
+coords <- sf::st_coordinates(field_centroids_sf)
+
+field_points_public <- field_centroids_sf |>
+dplyr::mutate(
+lon = coords[, "X"],
+lat = coords[, "Y"],
+lon_round = round(lon, 1),
+lat_round = round(lat, 1)
+) |>
+dplyr::select(ffy_id, farm, field, year, stusps, lon_round, lat_round) |>
+sf::st_as_sf(coords = c("lon_round", "lat_round"), crs = 4326)
+
+# Save a public version for the Overview chapter
+
+saveRDS(field_points_public, file = file.path(analysis_dir, "field_points_public.rds"))
+
+# Restrict state map to OFPE states only for clarity
+
+fig1_field_loc <- ggplot() +
+  geom_sf(data = ofpe_states_sf, fill = "grey95", color = "grey80") +
+  geom_sf(
+    data = field_points_public,
+    color = "black",
+    alpha = 0.15,          # very faint (blur feeling)
+    size = 8,              # much larger
+    shape = 16
+  ) +
+  theme_minimal() +
+  coord_sf(
+    xlim = range(sf::st_coordinates(ofpe_states_sf)[,1]),
+    ylim = range(sf::st_coordinates(ofpe_states_sf)[,2])
+  ) +
+  labs(x = NULL, y = NULL)
+
+```
