@@ -1,0 +1,17 @@
+bookdown::gitbook:
+  css: null
+  config:
+    toc:
+      collapse: subsection
+      before: |
+        <li><a href="./">OFPE, APSIM, and Bayesian N Priors</a></li>
+    edit: false
+    download: ["pdf"]
+bookdown::pdf_book:
+  includes:
+    in_header: null
+  latex_engine: xelatex
+  citation_package: natbib
+  keep_tex: false
+bookdown::html_book:
+  theme: default
