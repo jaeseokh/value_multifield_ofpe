@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="" xml:lang="">
+<head>
+
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <title>2 Overview | Bayesian attribution of Yield–N curve shapes</title>
+  <meta name="description" content="2 Overview | Bayesian attribution of Yield–N curve shapes" />
+  <meta name="generator" content="bookdown 0.45 and GitBook 2.6.7" />
+
+  <meta property="og:title" content="2 Overview | Bayesian attribution of Yield–N curve shapes" />
+  <meta property="og:type" content="book" />
+  
+  
+  
+
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="2 Overview | Bayesian attribution of Yield–N curve shapes" />
+  
+  
+  
+
+<meta name="author" content="Jaeseok Hwang" />
+
+
+
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  
+  
+<link rel="prev" href="index.html"/>
+<link rel="next" href="figure-1-all-ofpe-fields-ambiguous-us-map.html"/>
+<script src="libs/jquery-3.6.0/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fuse.js@6.4.6/dist/fuse.min.js"></script>
+<link href="libs/gitbook-2.6.7/css/style.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-table.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-bookdown.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-highlight.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-search.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-fontsettings.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-clipboard.css" rel="stylesheet" />
+
+
+
+
+
+
+
+
+<link href="libs/anchor-sections-1.1.0/anchor-sections.css" rel="stylesheet" />
+<link href="libs/anchor-sections-1.1.0/anchor-sections-hash.css" rel="stylesheet" />
+<script src="libs/anchor-sections-1.1.0/anchor-sections.js"></script>
+
+
+
+<style type="text/css">
+  
+  div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+</style>
+
+</head>
+
+<body>
+
+
+
+  <div class="book without-animation with-summary font-size-2 font-family-1" data-basepath=".">
+
+    <div class="book-summary">
+      <nav role="navigation">
+
+<ul class="summary">
+<li class="chapter" data-level="1" data-path="index.html"><a href="index.html"><i class="fa fa-check"></i><b>1</b> Preface</a></li>
+<li class="chapter" data-level="2" data-path="overview.html"><a href="overview.html"><i class="fa fa-check"></i><b>2</b> Overview</a></li>
+<li class="chapter" data-level="3" data-path="figure-1-all-ofpe-fields-ambiguous-us-map.html"><a href="figure-1-all-ofpe-fields-ambiguous-us-map.html"><i class="fa fa-check"></i><b>3</b> Figure 1: All OFPE fields (ambiguous US map)</a></li>
+<li class="chapter" data-level="4" data-path="figure-2-limitations-of-tree-ensembles-for-a-multi-year-field.html"><a href="figure-2-limitations-of-tree-ensembles-for-a-multi-year-field.html"><i class="fa fa-check"></i><b>4</b> Figure 2: Limitations of tree ensembles for a multi-year field</a></li>
+<li class="chapter" data-level="5" data-path="figure-4-illinois-only-subset-for-the-apsimbayesian-prototype.html"><a href="figure-4-illinois-only-subset-for-the-apsimbayesian-prototype.html"><i class="fa fa-check"></i><b>5</b> Figure 4: Illinois-only subset for the APSIM–Bayesian prototype</a></li>
+<li class="chapter" data-level="6" data-path="figure-5-apsim-based-illinois-prior-yieldn-distributions.html"><a href="figure-5-apsim-based-illinois-prior-yieldn-distributions.html"><i class="fa fa-check"></i><b>6</b> Figure 5: APSIM-based Illinois prior yield–N distributions</a></li>
+<li class="chapter" data-level="7" data-path="figure-6-conceptual-illustration-of-prior-updating-with-ofpe-data.html"><a href="figure-6-conceptual-illustration-of-prior-updating-with-ofpe-data.html"><i class="fa fa-check"></i><b>7</b> Figure 6: Conceptual illustration of prior updating with OFPE data</a></li>
+<li class="chapter" data-level="8" data-path="figure-7-example-posterior-yieldn-curve-for-an-illinois-field.html"><a href="figure-7-example-posterior-yieldn-curve-for-an-illinois-field.html"><i class="fa fa-check"></i><b>8</b> Figure 7: Example posterior yield–N curve for an Illinois field</a></li>
+</ul>
+
+      </nav>
+    </div>
+
+    <div class="book-body">
+      <div class="body-inner">
+        <div class="book-header" role="navigation">
+          <h1>
+            <i class="fa fa-circle-o-notch fa-spin"></i><a href="./">Bayesian attribution of Yield–N curve shapes</a>
+          </h1>
+        </div>
+
+        <div class="page-wrapper" tabindex="-1" role="main">
+          <div class="page-inner">
+
+            <section class="normal" id="section-">
+<div id="overview" class="section level1 hasAnchor" number="2">
+<h1><span class="header-section-number">2</span> Overview<a href="overview.html#overview" class="anchor-section" aria-label="Anchor link to header"></a></h1>
+<p>In this chapter I give a high-level overview of the project using seven figures:</p>
+<ol style="list-style-type: decimal">
+<li>The spatial distribution of all OFPE fields used in this study (ambiguous US map).</li>
+<li>An example showing the limitations of tree-based ensemble models for yield prediction at a field with multiple years of trials.</li>
+<li>Yield–N response curves for the same field, comparing ex-post “true” responses to machine learning forecasts.</li>
+<li>The Illinois-only subset of fields used in the APSIM–Bayesian prototype.</li>
+<li>APSIM-based prior yield–N distributions for representative Illinois soils under long-term historical weather.</li>
+<li>A conceptual illustration of how OFPE data update APSIM priors.</li>
+<li>An example posterior yield–N curve for an Illinois field after Bayesian updating.</li>
+</ol>
+<p>Technical details, full code, and additional figures appear in later chapters.</p>
+</div>
+            </section>
+
+          </div>
+        </div>
+      </div>
+<a href="index.html" class="navigation navigation-prev " aria-label="Previous page"><i class="fa fa-angle-left"></i></a>
+<a href="figure-1-all-ofpe-fields-ambiguous-us-map.html" class="navigation navigation-next " aria-label="Next page"><i class="fa fa-angle-right"></i></a>
+    </div>
+  </div>
+<script src="libs/gitbook-2.6.7/js/app.min.js"></script>
+<script src="libs/gitbook-2.6.7/js/clipboard.min.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-search.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-sharing.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-fontsettings.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-bookdown.js"></script>
+<script src="libs/gitbook-2.6.7/js/jquery.highlight.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-clipboard.js"></script>
+<script>
+gitbook.require(["gitbook"], function(gitbook) {
+gitbook.start({
+  "sharing": {
+    "github": false,
+    "facebook": true,
+    "twitter": true,
+    "linkedin": false,
+    "weibo": false,
+    "instapaper": false,
+    "vk": false,
+    "whatsapp": false,
+    "all": ["facebook", "twitter", "linkedin", "weibo", "instapaper"]
+  },
+  "fontsettings": {
+    "theme": "white",
+    "family": "sans",
+    "size": 2
+  },
+  "edit": {
+    "link": null,
+    "text": null
+  },
+  "history": {
+    "link": null,
+    "text": null
+  },
+  "view": {
+    "link": null,
+    "text": null
+  },
+  "download": null,
+  "search": {
+    "engine": "fuse",
+    "options": null
+  },
+  "toc": {
+    "collapse": "subsection"
+  }
+});
+});
+</script>
+
+</body>
+
+</html>

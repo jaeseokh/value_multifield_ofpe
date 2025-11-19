@@ -1,0 +1,8 @@
+preface
+overview
+figure-1-all-ofpe-fields-ambiguous-us-map
+figure-2-limitations-of-tree-ensembles-for-a-multi-year-field
+figure-4-illinois-only-subset-for-the-apsimbayesian-prototype
+figure-5-apsim-based-illinois-prior-yieldn-distributions
+figure-6-conceptual-illustration-of-prior-updating-with-ofpe-data
+figure-7-example-posterior-yieldn-curve-for-an-illinois-field
