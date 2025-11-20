@@ -1,0 +1,305 @@
+---
+title: "Results: Tree-Based Ensemble Models (LOLO)"
+subtitle: "Field-Level Yield–N Response & Economic Outcomes"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    theme: flatly
+    code-fold: true
+editor: visual
+---
+
+```{r setup, include=FALSE}
+
+library(here)
+
+suppressPackageStartupMessages({
+  library(dplyr); library(tidyr); library(ggplot2)
+  library(readr); library(purrr); library(stringr)
+  library(patchwork); library(cowplot)
+  
+  # Optional / conditional visualization dependencies
+  have_pkg <- function(pkg) requireNamespace(pkg, quietly = TRUE)
+  
+  if (have_pkg("DiagrammeR") && have_pkg("DiagrammeRsvg") && have_pkg("magick")) {
+    message(" Using DiagrammeR + DiagrammeRsvg + magick for tree rendering")
+  } else if (have_pkg("ggraph") && have_pkg("igraph")) {
+    message(" Using ggraph fallback for static tree visualization")
+  } else {
+    message(" Neither DiagrammeR nor ggraph available — only simple text tree output will show.")
+  }
+})
+
+out_base <- here::here("Data", "Processed", "Models_LOLO")
+
+```
+
+# OFPE map
+
+```{r OFPE map, include=FALSE}
+# On-Farm Precision Experiments (OFPE) design and layer of the data
+# field_sf <- st_read("Data/Processed/Spatial/subplots_40_1_2021.shp")
+# ggplot(field_sf, aes(fill = n_rate)) +
+# geom_sf() +
+# scale_fill_viridis_c() +
+# labs(title="Subplot-level N-rate variation: Field 40_1_2021")
+```
+
+
+# List available LOLO result folders
+```{r holdout load, include=FALSE}
+
+metric_files <- list.files(out_base, pattern = "holdout_metrics\\.csv$", recursive = TRUE, full.names = TRUE)
+ids <- basename(dirname(metric_files))
+
+parse_farm_field <- function(ffy_id, sep = "_") {
+  parts <- strsplit(ffy_id, sep, fixed = TRUE)[[1]]
+  if (length(parts) < 3) return(NA_character_)
+  paste(parts[1], parts[2], sep = "_") |> as.character()
+}
+
+farm_field <- vapply(ids, parse_farm_field, character(1))
+ff_map <- tibble(ffy_id = ids, farm_field = farm_field)
+
+ff3 <- ff_map %>%
+  count(farm_field, name = "n_trials") %>%
+  filter(n_trials == 3) %>%
+  pull(farm_field)
+
+ff3_ids <- ff_map %>%
+  filter(farm_field %in% ff3) %>%
+  arrange(farm_field, ffy_id)
+
+message("✅ 3-trial farm_fields detected: ", paste(ff3, collapse = ", "))
+
+
+```
+
+# Variable Importance Panels (RF & XGB)
+
+```{r vip, include=FALSE}
+
+vip_outdir <- here::here("book","Results","Figures","stage1_ensemble")
+dir.create(vip_outdir, recursive = TRUE, showWarnings = FALSE)
+
+make_vi_plot <- function(path_csv, id, model = c("RF","XGB")) {
+
+  model <- match.arg(model)
+  if (!file.exists(path_csv)) return(NULL)
+
+  df <- readr::read_csv(path_csv, show_col_types = FALSE)
+
+  ## --------------------------
+  ##  RF — normalize importances
+  ## --------------------------
+  if (model == "RF" && all(c("feature","importance") %in% names(df))) {
+
+    df <- df %>%
+      mutate(
+        importance_scaled = importance / max(importance, na.rm = TRUE),
+        label_txt = sprintf("%.2f", importance_scaled)
+      )
+
+    return(
+      ggplot(df, aes(x = reorder(feature, importance_scaled),
+                     y = importance_scaled)) +
+        geom_col(fill = "steelblue") +
+        geom_text(aes(label = label_txt),
+                  hjust = -0.1, size = 3.3, color = "black") +
+        coord_flip(clip = "off") +
+        scale_y_continuous(limits = c(0, 1.15)) +
+        labs(
+          x = NULL,
+          y = "Scaled importance (0–1)",
+          title = paste0("RF VI — ", id)
+        ) +
+        theme_minimal(base_size = 11) +
+        theme(plot.margin = margin(5.5, 40, 5.5, 5.5))
+    )
+  }
+
+  ## --------------------------
+  ## XGB —  Gain 
+  ## --------------------------
+  if (model == "XGB" && all(c("Feature","Gain") %in% names(df))) {
+
+    df <- df %>%
+      mutate(label_txt = sprintf("%.3f", Gain))
+
+    return(
+      ggplot(df, aes(x = reorder(Feature, Gain), y = Gain)) +
+        geom_col(fill = "darkorange") +
+        geom_text(aes(label = label_txt),
+                  hjust = -0.1, size = 3.3, color = "black") +
+        coord_flip(clip = "off") +
+        scale_y_continuous(limits = c(0, max(df$Gain)*1.15)) +
+        labs(
+          x = NULL,
+          y = "Gain",
+          title = paste0("XGB VI — ", id)
+        ) +
+        theme_minimal(base_size = 11) +
+        theme(plot.margin = margin(5.5, 40, 5.5, 5.5))
+    )
+  }
+
+  return(NULL)
+}
+
+
+for (ff in ff3) {
+three <- ff3_ids %>% filter(farm_field == ff) %>% pull(ffy_id)
+paths <- file.path(out_base, three)
+
+rf_plots  <- map2(file.path(paths,"rf_varimp.csv"), three, ~make_vi_plot(.x, .y, "RF"))
+xgb_plots <- map2(file.path(paths,"xgb_varimp.csv"), three, ~make_vi_plot(.x, .y, "XGB"))
+
+blank <- ggplot() + theme_void()
+rf_plots  <- lapply(rf_plots,  function(p) if (is.null(p)) blank else p)
+xgb_plots <- lapply(xgb_plots, function(p) if (is.null(p)) blank else p)
+
+panel <- (rf_plots[[1]] + rf_plots[[2]] + rf_plots[[3]]) /
+(xgb_plots[[1]] + xgb_plots[[2]] + xgb_plots[[3]]) +
+plot_annotation(title = paste0("Variable Importance — ", ff, " (3 trials)"))
+
+print(panel)
+ggsave(file.path(vip_outdir, paste0("VI_panel_", ff, ".png")),
+plot = panel, width = 12, height = 8, dpi = 200)
+}
+
+
+```
+
+# Ensemble Tree Shapes
+
+```{r tree shapes, include=FALSE}
+
+tree_outdir <- here::here("book","Results","Figures","stage1_ensemble")
+dir.create(tree_outdir, recursive = TRUE, showWarnings = FALSE)
+
+have_svg <- requireNamespace("DiagrammeR", quietly = TRUE) &&
+requireNamespace("DiagrammeRsvg", quietly = TRUE) &&
+requireNamespace("magick", quietly = TRUE)
+
+render_tree_png <- function(model_path, refcols_path = NULL, out_png) {
+if (!file.exists(model_path)) return(FALSE)
+xgb_fit <- readRDS(model_path)
+feats <- NULL
+if (!is.null(refcols_path) && file.exists(refcols_path)) {
+feats <- readRDS(refcols_path)
+nfeat <- tryCatch(xgb_fit$nfeatures, error = function(e) NA_integer_)
+if (!(is.finite(nfeat) && length(feats) == nfeat)) feats <- NULL
+}
+gr <- if (is.null(feats)) {
+xgboost::xgb.plot.tree(model = xgb_fit, trees = 0)
+} else {
+xgboost::xgb.plot.tree(model = xgb_fit, trees = 0, feature_names = feats)
+}
+if (!have_svg) return(FALSE)
+svg_txt <- DiagrammeRsvg::export_svg(gr)
+img <- magick::image_read_svg(svg_txt, width = 1600, height = 1000)
+magick::image_write(img, out_png)
+TRUE
+}
+
+for (ff in ff3) {
+three <- ff3_ids %>% filter(farm_field == ff) %>% pull(ffy_id)
+paths <- file.path(out_base, three)
+pngs <- character(0)
+for (i in seq_along(three)) {
+mp <- file.path(paths[i], "xgb_model.rds")
+rp <- file.path(paths[i], "xgb_refcols.rds")
+out_png <- file.path(tree_outdir, paste0("tree_", three[i], ".png"))
+ok <- render_tree_png(mp, rp, out_png)
+if (ok) pngs <- c(pngs, out_png)
+}
+
+if (have_svg && length(pngs) == 3) {
+imgs <- magick::image_read(pngs)
+combo <- magick::image_append(imgs, stack = TRUE)
+magick::image_write(combo, file.path(tree_outdir, paste0("XGB_trees_", ff, ".png")))
+grid::grid.raster(combo)
+} else {
+message("⚠️ DiagrammeR not available; showing individual trees.")
+for (i in seq_along(three)) {
+mp <- file.path(paths[i], "xgb_model.rds")
+if (!file.exists(mp)) next
+print(xgboost::xgb.plot.tree(model = readRDS(mp), trees = 0))
+}
+}
+}
+
+
+
+```
+
+# Yield–N Response Comparison
+
+```{r yield-n comparison, include=FALSE}
+
+curve_outdir <- here::here("book","Results","Figures","stage1_ensemble")
+dir.create(curve_outdir, recursive = TRUE, showWarnings = FALSE)
+
+for (ff in ff3) {
+three <- ff3_ids %>% filter(farm_field == ff) %>% pull(ffy_id)
+paths <- file.path(out_base, three)
+curves_list <- map2(paths, three, function(pth, id) {
+fp <- file.path(pth, "n_curves.csv")
+if (!file.exists(fp)) return(NULL)
+read_csv(fp, show_col_types = FALSE) %>% mutate(ffy_id = id)
+})
+curves_all <- bind_rows(Filter(Negate(is.null), curves_list))
+if (!nrow(curves_all)) next
+
+model_cols <- intersect(c("RF","XGB","GAM"), names(curves_all))
+cl <- curves_all %>%
+pivot_longer(cols = all_of(model_cols), names_to = "model", values_to = "yhat") %>%
+filter(!is.na(yhat))
+
+p <- ggplot(cl, aes(x = n_rate, y = yhat, color = model)) +
+geom_line(linewidth = 1.1) +
+facet_wrap(~ ffy_id, ncol = 3) +
+labs(x = "Nitrogen rate (kg/ha)", y = "Predicted yield (bu/acre)",
+title = paste0("Yield N response curves_ ", ff, " (3 trials)"),
+color = "Model") +
+theme_minimal(base_size = 12)
+
+print(p)
+ggsave(file.path(curve_outdir, paste0("Curves_", ff, ".png")),
+plot = p, width = 12, height = 6.5, dpi = 200)
+}
+
+```
+
+# Economic Optimum N Rate (EONR) Comparison
+
+```{r eonr-comparison, include=FALSE}
+
+eonr_all <- map_dfr(ff3_ids$ffy_id, function(id) {
+ff <- parse_farm_field(id)
+fp <- file.path(out_base, id, "eonr_table.csv")
+if (!file.exists(fp)) return(NULL)
+read_csv(fp, show_col_types = FALSE) %>%
+mutate(ffy_id = id, farm_field = ff)
+})
+
+eonr_all <- eonr_all %>%
+relocate(farm_field, ffy_id, model, scenario_id, corn_price, n_price, EONR, yield_at_EONR, profit_at_EONR) %>%
+arrange(farm_field, ffy_id, model, scenario_id)
+
+readr::write_csv(eonr_all, here::here("Figures","EONR_3trial_all.csv"))
+
+eonr_summary <- eonr_all %>%
+group_by(farm_field, ffy_id, model) %>%
+summarise(
+mean_EONR = mean(EONR, na.rm = TRUE),
+mean_profit = mean(profit_at_EONR, na.rm = TRUE),
+.groups = "drop"
+) %>%
+arrange(farm_field, ffy_id, model)
+
+eonr_summary
+
+```
+

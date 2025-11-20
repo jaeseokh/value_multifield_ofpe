@@ -1,0 +1,62 @@
+---
+title: "Methods"
+bibliography: value_refs.bib
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+This study evaluates whether multi-field machine-learning models can approximate field-specific nitrogen decisions that would otherwise require directly implementing an On-Farm Precision Experiment (OFPE). To do so, we construct yield–nitrogen response functions using a combination of Random Forest (RF), Extreme Gradient Boosting (XGBoost), and a leave-one-location-out (LOLO) cross-validation framework. These multi-field predictions are then compared to field-specific benchmark responses derived from a Generalized Additive Model (GAM) estimated using only the data from each individual OFPE field-year. The resulting comparison quantifies how closely pooled models replicate the nitrogen response, the economically optimal nitrogen rate (EONR), and the associated profit outcomes that would be obtained through direct experimentation.
+
+Random Forest is employed as a flexible, nonparametric learning algorithm capable of capturing complex relationships between nitrogen, soils, and weather conditions across heterogeneous OFPE fields. The method builds an ensemble of regression trees using bootstrap samples and randomized feature selection, ensuring that each tree explores different partitions of the predictor space (@breiman2001random). For a given observation $x_{ij}$ representing nitrogen rate and associated covariates, the Random Forest prediction takes the form  
+$$
+\hat{f}^{RF}(x_{ij}) = \frac{1}{B} \sum_{b=1}^B T_b(x_{ij}),
+$$  
+where $T_b(\cdot)$ denotes the prediction from tree $b$. This averaging process reduces variance and allows the model to represent highly nonlinear and interaction-driven agronomic responses without specifying a parametric structure.
+
+Extreme Gradient Boosting (XGBoost) provides a complementary modeling strategy by constructing a sequence of regression trees, each of which is optimized to correct the errors of the preceding ensemble. Formally, the boosted prediction is expressed as  
+$$
+\hat{f}^{XGB}(x_{ij}) = \sum_{k=1}^{K} \lambda_k T_k(x_{ij}),
+$$  
+where $T_k(\cdot)$ are regression trees and $\lambda_k$ are weights learned through gradient-based optimization (@chen2016xgboost). Regularization penalizes tree complexity and prevents overfitting, making XGBoost particularly effective for representing multivariate, nonlinear nitrogen response patterns in high-dimensional OFPE settings.
+
+To ensure that model assessment reflects genuine out-of-field predictive performance, both RF and XGBoost are trained under a leave-one-location-out (LOLO) cross-validation design. Each “location” corresponds to a complete field-year (i.e., one OFPE implementation). In each iteration, all observations from a given field-year are removed from the training set, and the model is fitted using the remaining dataset. Predictions are then generated exclusively for the held-out field. For a field-year $i$, this procedure produces yield predictions of the form  
+$$
+\hat{Y}_{ij}^{(-i)} = \hat{f}_{-i}(N_{ij}, X_{ij}),
+$$  
+where $\hat{f}_{-i}$ denotes the model trained on all other fields. This design prevents information leakage across subplot clusters within a field and provides a stringent test of how well multi-field relational patterns generalize to new farms under real-world agronomic heterogeneity.
+
+Model evaluation requires a benchmark representation of the realized yield–nitrogen relationship in each field. This benchmark is derived from a Generalized Additive Model (GAM) estimated using only the subplot-level data from the field-year under consideration. The GAM specification introduces smooth terms for nitrogen and key environmental covariates, enabling flexible representation of the underlying response surface without assuming linearity or functional restrictions. For field-year $i$, the benchmark response function is given by  
+$$
+\hat{f}^{GAM}_{i}(N, X) =
+\beta_0 
++ s_1(N) + s_2(\text{SED}) + s_3(\text{Slope})
++ s_4(\text{Elevation}) + s_5(\text{Clay})
++ s_6(\text{Sand}) + s_7(\text{Silt}) + \varepsilon,
+$$  
+where $s_1, \dots, s_7$ denote smooth functions estimated from the field’s own observations (@wood2017generalized; @gardner2021economic; @hegedus2023assessing). This single-field GAM serves as the ex post yield–nitrogen curve realized under the actual soil, weather, and management conditions of that field-year.
+
+Using the GAM-estimated yield curve as the realized crop production function, economic outcomes are calculated by combining predicted yield with observed price and nitrogen cost information. The profit associated with nitrogen rate $N$ in field $i$ is  
+$$
+\pi_i(N) = \bar{p}\,\hat{f}^{GAM}_i(N) - \bar{w}\,N,
+$$  
+where $\bar{p}$ is the corn price and $\bar{w}$ is the per-unit nitrogen cost. The economically optimal nitrogen rate derived from direct OFPE data is then  
+$$
+EONR_d = \arg\max_N \pi_i(N),
+$$  
+providing a field-specific benchmark that reflects the true profit-maximizing decision for that year.
+
+Multi-field machine-learning models generate analogous profit functions using predictions from LOLO-trained models. For method $ML \in \{RF, XGB\}$, the predicted profit for field $i$ is  
+$$
+\pi^{ML}_i(N) = \bar{p}\,\hat{f}^{ML}_{-i}(N) - \bar{w}\,N,
+$$  
+and the corresponding optimal nitrogen rate is  
+$$
+EONR_o = \arg\max_N \pi^{ML}_i(N).
+$$  
+Comparing $EONR_o$ to $EONR_d$ reveals the accuracy with which multi-field learning can substitute for direct experimentation. Differences in predicted and benchmark nitrogen rates are evaluated alongside differences in profit outcomes. The economic discrepancy,  
+$$
+\Delta \pi_i = \pi_i(EONR_o) - \pi_i(EONR_d),
+$$  
+summarizes whether relying on pooled information leads to revenue gains or losses relative to the field-specific optimum. These comparisons allow us to determine both the predictive validity and the economic relevance of transferring information across OFPE fields, providing a direct empirical test of whether multi-field data can approach the decision quality generated by site-specific experiments.

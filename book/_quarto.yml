@@ -1,0 +1,34 @@
+project:
+  type: book
+  output-dir: ../docs
+
+book:
+  title: "Bayesian Yield–N Modeling"
+  author: "Jaeseok Hwang"
+  chapters:
+    - index.qmd
+    - part: "Tree Ensemble Prediction (2022)"
+      chapters:
+        - 01.Overview.Rmd
+        - 02.Framework_Economics.Rmd
+        - 03.Data_and_Experiment.Rmd
+        - 04.Method.Rmd
+        - 05.Results(Limitation).Rmd
+
+    - part: "Bayesian-Hierarchical Analysis (2025)"
+      chapters:
+        - 06.Bayesian_priors_APSIM.Rmd
+        - 07.Bayesian_update.Rmd
+        - 08.Bayesian_posterior.Rmd
+
+format:
+  html:
+    theme: cosmo
+    css: style.css
+    toc: true
+    number-sections: true
+    code-fold: true     # <- hide code, show a toggle
+    code-tools: true    # <- show the </> Code button
+    code-summary: "Code"
+crossref: 
+  fig-prefix: "Figure"

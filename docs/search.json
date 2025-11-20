@@ -1,0 +1,284 @@
+[
+  {
+    "objectID": "01.Overview.html",
+    "href": "01.Overview.html",
+    "title": "1  Overview",
+    "section": "",
+    "text": "Background\nCode\ncoords &lt;- sf::st_coordinates(field_centroids_sf)\n\nfield_points_public &lt;- field_centroids_sf |&gt;\n  mutate(\n    lon = coords[, \"X\"],\n    lat = coords[, \"Y\"],\n    lon_round = round(lon, 1),\n    lat_round = round(lat, 1)\n  ) |&gt;\n  select(ffy_id, farm, field, year, stusps, lon_round, lat_round) |&gt;\n  st_as_sf(coords = c(\"lon_round\", \"lat_round\"), crs = 4326)\n\nfig1_field_loc &lt;- ggplot() +\n  geom_sf(data = ofpe_states_sf, fill = \"grey95\", color = \"grey80\") +\n  geom_sf(\n    data  = field_points_public,\n    color = \"black\",\n    alpha = 0.15,\n    size  = 8,\n    shape = 16\n  ) +\n  theme_minimal() +\n  coord_sf(\n    xlim = range(sf::st_coordinates(ofpe_states_sf)[, 1]),\n    ylim = range(sf::st_coordinates(ofpe_states_sf)[, 2])\n  ) +\n  labs(x = NULL, y = NULL)\n\nfig1_field_loc\n\n\n\n\n\nFigure 1. Location of OFPE fields across the Midwest U.S.\nThis figure shows the approximate locations of all OFPE fields used in the project. Coordinates are intentionally coarsened to protect field privacy and highlight only the spatial footprint and weather-diversity motivating the multi-field analysis.",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Overview</span>"
+    ]
+  },
+  {
+    "objectID": "01.Overview.html#research-objectives",
+    "href": "01.Overview.html#research-objectives",
+    "title": "1  Overview",
+    "section": "Research Objectives",
+    "text": "Research Objectives\nThe original objective was to use multi-field OFPE data to predict yield–nitrogen (yield–N) response at new fields, asking:\n\nCan yield–N responses at one field inform predictions at another?\n\nHow transferable are empirical relationships across fields and years?\n\nCan purely data-driven ML models extract cross-field structure?\n\nThese questions shaped the 2022 modeling strategy.",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Overview</span>"
+    ]
+  },
+  {
+    "objectID": "01.Overview.html#method",
+    "href": "01.Overview.html#method",
+    "title": "1  Overview",
+    "section": "Method",
+    "text": "Method\nThe 2022 analysis used tree-ensemble models:\n\nRandom Forests\n\nXGBoost\n\nBy these model the yield(\\(bu/ac\\)) of OFPE fields were trained on:\n\nNitrogen rate (\\(lbs/ac\\))\nSSURGO soil attributes1\n\nDEM-derived2 topography\n\nIn-season accumulated weather info (precipitation(\\(mm\\)), GDD3, EDD4 )\n\nWith generalization assessed via the cross-validation method:\n\n1.0.1 Leave-One-Location-Out (LOLO) validation\n\nTrain on all fields except one\n\nPredict the held-out field\n\nRepeat for each field\n\nRepresenting cases where producers lack prior field trials.",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Overview</span>"
+    ]
+  },
+  {
+    "objectID": "01.Overview.html#findings-limitations",
+    "href": "01.Overview.html#findings-limitations",
+    "title": "1  Overview",
+    "section": "Findings (Limitations)",
+    "text": "Findings (Limitations)\nLOLO revealed:\n\nstrong within-field fit\n\nweak cross-field and cross-year performance\n\nReasons:\n\nSpatial instability: learned patterns do not transfer\n\nPoor extrapolation: unseen soil–weather combinations fail\n\nStatic predictors: SSURGO + DEM do not capture dynamic ground N and water interaction\nProcess mismatch: yield–N depends on nitrogen cycling, water stress, and crop growth\n\nThis motivated the transition to the Bayesian–APSIM approach used in later chapters.\n\n\n\n\n:::{#quarto-navigation-envelope .hidden}\n[Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar-title\"}\n[Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-navbar-title\"}\n[&lt;span class='chapter-number'&gt;2&lt;/span&gt;  &lt;span class='chapter-title'&gt;Economic Framework&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-next\"}\n[Preface]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-prev\"}\n[Preface]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/index.htmlPreface\"}\n[Tree Ensemble Prediction (2022)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:quarto-sidebar-section-1\"}\n[&lt;span class='chapter-number'&gt;1&lt;/span&gt;  &lt;span class='chapter-title'&gt;Overview&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/01.Overview.html&lt;span-class='chapter-number'&gt;1&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Overview&lt;/span&gt;\"}\n[&lt;span class='chapter-number'&gt;2&lt;/span&gt;  &lt;span class='chapter-title'&gt;Economic Framework&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/02.Framework_Economics.html&lt;span-class='chapter-number'&gt;2&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Economic-Framework&lt;/span&gt;\"}\n[&lt;span class='chapter-number'&gt;3&lt;/span&gt;  &lt;span class='chapter-title'&gt;Data and Design&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/03.Data_and_Experiment.html&lt;span-class='chapter-number'&gt;3&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Data-and-Design&lt;/span&gt;\"}\n[&lt;span class='chapter-number'&gt;4&lt;/span&gt;  &lt;span class='chapter-title'&gt;Methods&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/04.Method.html&lt;span-class='chapter-number'&gt;4&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Methods&lt;/span&gt;\"}\n[&lt;span class='chapter-number'&gt;5&lt;/span&gt;  &lt;span class='chapter-title'&gt;Results(limitation)&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/05.Results(Limitation).html&lt;span-class='chapter-number'&gt;5&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Results(limitation)&lt;/span&gt;\"}\n[Bayesian-Hierarchical Analysis (2025)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:quarto-sidebar-section-2\"}\n[(PART) Bayesian-Hierarchical analysis (2025)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/06.Bayesian_priors_APSIM.html(PART)-Bayesian-Hierarchical-analysis-(2025)\"}\n[(PART) Bayesian-Hierarchical analysis (2025)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/07.Bayesian_update.html(PART)-Bayesian-Hierarchical-analysis-(2025)\"}\n[(PART) Bayesian-Hierarchical analysis (2025)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/08.Bayesian_posterior.html(PART)-Bayesian-Hierarchical-analysis-(2025)\"}\n[Tree Ensemble Prediction (2022)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-breadcrumbs-Tree-Ensemble-Prediction-(2022)\"}\n[&lt;span class='chapter-number'&gt;1&lt;/span&gt;  &lt;span class='chapter-title'&gt;Overview&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-breadcrumbs-&lt;span-class='chapter-number'&gt;1&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Overview&lt;/span&gt;\"}\n:::\n\n\n\n:::{#quarto-meta-markdown .hidden}\n[[1]{.chapter-number}  [Overview]{.chapter-title} – Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-metatitle\"}\n[[1]{.chapter-number}  [Overview]{.chapter-title} – Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-twittercardtitle\"}\n[[1]{.chapter-number}  [Overview]{.chapter-title} – Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-ogcardtitle\"}\n[Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-metasitename\"}\n[]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-twittercarddesc\"}\n[]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-ogcardddesc\"}\n:::\n\n\n\n\n&lt;!-- --&gt;\n\n::: {.quarto-embedded-source-code}\n```````````````````{.markdown shortcodes=\"false\"}\n# Overview \n\n```{r setup, include=FALSE}\n\nknitr::opts_chunk$set(\n  message = FALSE,\n  warning = FALSE,\n  fig.align = \"center\",\n  fig.width = 7,\n  fig.height = 5,\n  dpi = 300\n)\n\nlibrary(here)\nlibrary(dplyr)\nlibrary(sf)\nlibrary(ggplot2)\n\nanalysis_dir &lt;- here::here(\"Data\", \"Processed\", \"Analysis_ready\")\n\nfield_centroids_sf &lt;- readRDS(file.path(analysis_dir, \"field_centroids_sf.rds\"))\n\nus_map_sf &lt;- sf::st_read(\n  here::here(\"Data\", \"Raw\", \"us_state_2023.shp\"),\n  quiet = TRUE\n) |&gt; sf::st_transform(4326)\n\nofpe_fips &lt;- c(17, 18, 19, 20, 21, 26, 27, 29, 31, 38, 39, 46, 55)\n\nofpe_states_sf &lt;- us_map_sf |&gt;\n  dplyr::rename_with(tolower) |&gt;\n  dplyr::filter(statefp %in% ofpe_fips) |&gt;\n  dplyr::mutate(fips = as.numeric(statefp)) |&gt;\n  dplyr::select(fips, stusps, geometry)",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Overview</span>"
+    ]
+  },
+  {
+    "objectID": "01.Overview.html#background-1",
+    "href": "01.Overview.html#background-1",
+    "title": "1  Overview",
+    "section": "Background",
+    "text": "Background\n```{r fig1, echo=TRUE, cache=TRUE, fig.cap=“Figure 1. Location of OFPE fields across the Midwest U.S.”}\ncoords &lt;- sf::st_coordinates(field_centroids_sf)\nfield_points_public &lt;- field_centroids_sf |&gt; mutate( lon = coords[, “X”], lat = coords[, “Y”], lon_round = round(lon, 1), lat_round = round(lat, 1) ) |&gt; select(ffy_id, farm, field, year, stusps, lon_round, lat_round) |&gt; st_as_sf(coords = c(“lon_round”, “lat_round”), crs = 4326)\nfig1_field_loc &lt;- ggplot() + geom_sf(data = ofpe_states_sf, fill = “grey95”, color = “grey80”) + geom_sf( data = field_points_public, color = “black”, alpha = 0.15, size = 8, shape = 16 ) + theme_minimal() + coord_sf( xlim = range(sf::st_coordinates(ofpe_states_sf)[, 1]), ylim = range(sf::st_coordinates(ofpe_states_sf)[, 2]) ) + labs(x = NULL, y = NULL)\nfig1_field_loc\n\nThis figure shows the approximate locations of all OFPE fields used in the project.\nCoordinates are intentionally coarsened to protect field privacy and highlight only the\nspatial footprint and weather-diversity motivating the multi-field analysis.\n\n## Research Objectives {-}\n\nThe original objective was to use multi-field OFPE data to predict yield–nitrogen (yield–N)\nresponse at **new fields**, asking:\n\n- *Can yield–N responses at one field inform predictions at another?*  \n- *How transferable are empirical relationships across fields and years?*  \n- *Can purely data-driven ML models extract cross-field structure?*\n\nThese questions shaped the 2022 modeling strategy.\n\n## Method {-}\n\nThe 2022 analysis used **tree-ensemble models**:\n\n- Random Forests  \n- XGBoost  \n\nBy these model the yield($bu/ac$) of OFPE fields were trained on:\n\n- Nitrogen rate ($lbs/ac$) \n- SSURGO soil attributes^[Soil Survey Geographic Database (USDA NRCS)]  \n- DEM-derived^[Digital Elevation Model] topography  \n- In-season accumulated weather info (precipitation($mm$), GDD^[Growing Degree Days], EDD^[Extreme Degree Days] )\n\nWith generalization assessed via the cross-validation method:\n\n### Leave-One-Location-Out (LOLO) validation\n\n1. Train on all fields *except* one  \n2. Predict the held-out field  \n3. Repeat for each field  \n\nRepresenting cases where producers lack prior field trials.\n\n## Findings (Limitations) {-}\n\nLOLO revealed:\n\n- strong **within-field** fit  \n- weak **cross-field** and **cross-year** performance  \n\nReasons:\n\n- **Spatial instability:** learned patterns do not transfer  \n- **Poor extrapolation:** unseen soil–weather combinations fail  \n- **Static predictors:** SSURGO + DEM do not capture dynamic ground N and water interaction \n- **Process mismatch:** yield–N depends on nitrogen cycling, water stress, and crop growth  \n\nThis motivated the transition to the **Bayesian–APSIM approach** used in later chapters.\n\n``````````````````` :::",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Overview</span>"
+    ]
+  },
+  {
+    "objectID": "01.Overview.html#footnotes",
+    "href": "01.Overview.html#footnotes",
+    "title": "1  Overview",
+    "section": "",
+    "text": "Soil Survey Geographic Database (USDA NRCS)↩︎\nDigital Elevation Model↩︎\nGrowing Degree Days↩︎\nExtreme Degree Days↩︎",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Overview</span>"
+    ]
+  },
+  {
+    "objectID": "02.Framework_Economics.html",
+    "href": "02.Framework_Economics.html",
+    "title": "2  Economic Framework",
+    "section": "",
+    "text": "1. Motivation and Role of Information\nOn-farm experiments (OFEs) have long been a cornerstone of agronomic research, providing structured, randomized trials to estimate crop yield responses to key inputs such as nitrogen (N). Their small plot size, however, limits the ability to capture spatial heterogeneity, which can bias estimates of the Economic Optimum Nitrogen Rate (EONR) when field variability is ignored (Bullock et al. 2009; Anselin, Bongiovanni, and Lowenberg-DeBoer 2004).\nThe emergence of On-Farm Precision Experiments (OFPEs) offers a scalable alternative. Using GPS-guided machinery, OFPEs introduce variable-rate nitrogen treatments across entire commercial fields, generating large spatial datasets that better reflect realistic production environments (Bullock et al. 2019; Gebbers and Adamchuk 2010). Yet, this approach introduces new costs and risks for growers. Testing extreme N rates—particularly low or unprofitable levels—can expose farmers to revenue losses (Lara et al. 2023), and multi-year replication is often required to capture the agronomic interactions between nitrogen, soil, and weather.\nThese constraints raise the central question of this study:\nCan multi-field OFPE data provide decision-relevant information for fields where no direct OFPE has been conducted?\nIf so, OFPE data could generate positive externalities, enabling farmers to benefit from trials done on other fields. This would be especially valuable in the U.S. Corn Belt, where growers manage large areas but face logistical, financial, and risk-related barriers to running their own OFPEs.\nThis chapter develops the economic framework underlying that question.",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>2</span>  <span class='chapter-title'>Economic Framework</span>"
+    ]
+  },
+  {
+    "objectID": "02.Framework_Economics.html#yield-response-and-the-information-structure",
+    "href": "02.Framework_Economics.html#yield-response-and-the-information-structure",
+    "title": "2  Economic Framework",
+    "section": "2. Yield Response and the Information Structure",
+    "text": "2. Yield Response and the Information Structure\nFollowing Bullock et al. (2009), crop yield \\(y\\) is modeled as:\n\\[\ny = f(\\mathbf{x}, \\mathbf{c}, \\mathbf{z})\n\\tag{2.1}\\]\nwhere:\n\n\\(\\mathbf{x}\\) = vector of controllable inputs (seed, fertilizer, herbicides, hybrids),\n\n\\(\\mathbf{c}\\) = field characteristics (soil, organic matter, topography),\n\n\\(\\mathbf{z}\\) = stochastic temporal variables (weather, pests).\n\nThe full function\n\\[f(\\mathbf{x}, \\mathbf{c}, \\mathbf{z})\\]\nis referred to as nature’s meta-response function.\nFor a specific field \\(i\\) with characteristic map \\(\\mathbf{c}_i\\), the site-specific response function is:\n\\[\nf_i(\\mathbf{x}, \\mathbf{z}) \\equiv f(\\mathbf{x}, \\mathbf{c}_i, \\mathbf{z})\n\\]\nThis function determines how yield responds to nitrogen under that field’s soil and topographic conditions.",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>2</span>  <span class='chapter-title'>Economic Framework</span>"
+    ]
+  },
+  {
+    "objectID": "02.Framework_Economics.html#farmers-profit-maximization-problem",
+    "href": "02.Framework_Economics.html#farmers-profit-maximization-problem",
+    "title": "2  Economic Framework",
+    "section": "3. Farmer’s Profit Maximization Problem",
+    "text": "3. Farmer’s Profit Maximization Problem\nAssuming nitrogen is the only controllable input and prices \\(\\mathbf{p}\\) (crop) and \\(\\mathbf{w}\\) (N) are fixed, the farmer’s profit is:\n\\[\n\\pi = \\mathbf{p}\\, f_i(N, \\mathbf{z}) - \\mathbf{w}\\, N\n\\tag{2.2}\\]\nFarmers face two sources of uncertainty when choosing \\(N\\):\n\nWeather uncertainty.\nWeather events \\(\\mathbf{z} \\in Z\\) follow a known climate distribution \\(h(\\mathbf{z})\\), but farmers cannot know the realized \\(\\mathbf{z}\\) ex ante.\nUncertainty about the true yield response function.\nFarmers have a subjective distribution \\(g(f_i^m \\mid \\eta)\\) over the set of possible yield response functions\n\\[\\Omega = \\{ f_i^1, \\ldots, f_i^M \\}\\]\nwhere the true function is \\(f_i^R\\).\n\nMore information (denoted \\(\\eta\\)) sharpens this belief, causing\n\\[g(f_i^m \\mid \\eta) \\to 1 \\text{ for } m = R\\]\nas in Laffont (1989).\nThus, expected maximum profit under information \\(\\eta\\) is:\n\\[\nE(\\pi_i \\mid \\eta)\n=\n\\max_N\n\\int_{z \\in Z}\n\\left\\{\n  \\sum_{m=1}^M\n  \\left[\n    \\mathbf{p}\\, f_i^m(N,\\mathbf{z}) - \\mathbf{w}\\, N\n  \\right]\n  g(f_i^m \\mid \\eta)\n\\right\\}\nh(\\mathbf{z}) \\, d\\mathbf{z}\n\\tag{2.3}\\]\nThis expression is central: it shows how better information leads to better nitrogen decisions.",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>2</span>  <span class='chapter-title'>Economic Framework</span>"
+    ]
+  },
+  {
+    "objectID": "02.Framework_Economics.html#how-ofpe-data-provide-information",
+    "href": "02.Framework_Economics.html#how-ofpe-data-provide-information",
+    "title": "2  Economic Framework",
+    "section": "4. How OFPE Data Provide Information",
+    "text": "4. How OFPE Data Provide Information\nOFPEs reveal information about:\n\nthe field-specific structure of \\(f_i(N,\\mathbf{z})\\),\n\nthe interaction between applied N and soil/topographic features \\(\\mathbf{c}_i\\),\n\nthe way weather modifies nitrogen response.\n\nGiven OFPE data, beliefs collapse:\n\\[\ng(f_i^R \\mid \\eta^{\\prime}) = 1\n\\]\nwhere \\(\\eta^\\prime\\) denotes information from a single-field OFPE.\nHowever, if single-field OFPEs are infeasible, farmers may rely on:\n\n\\(\\eta^{\\prime}\\) = benchmark information (from own OFPE),\n\n\\(\\eta^{\\prime\\prime}\\) = information from multi-field OFPE data.\n\nThe relevant welfare comparison is:\n\\[\n\\left|\n\\big[E(\\pi_i \\mid \\eta^{\\prime\\prime}) - E(\\pi_i \\mid \\eta^\\prime)\\big]\n-\n\\big[C(\\eta^{\\prime\\prime}) - C(\\eta^\\prime)\\big]\n\\right|\n\\tag{2.4}\\]\nHere:\n\n\\(E(\\pi_i \\mid \\eta^\\prime)\\) = expected profit using field-specific OFPE data\n\n\\(E(\\pi_i \\mid \\eta^{\\prime\\prime})\\) = expected profit using cross-field information\n\n\\(C(\\eta)\\) = cost of obtaining information set \\(\\eta\\)\n\nThis study evaluates whether \\(\\eta^{\\prime\\prime}\\) can approximate \\(\\eta^\\prime\\) —\ni.e., whether multi-field OFPE data can provide nearly as much decision value as a field’s own OFPE.",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>2</span>  <span class='chapter-title'>Economic Framework</span>"
+    ]
+  },
+  {
+    "objectID": "02.Framework_Economics.html#why-multi-field-ofpe-predictions-fail-link-to-ml-results",
+    "href": "02.Framework_Economics.html#why-multi-field-ofpe-predictions-fail-link-to-ml-results",
+    "title": "2  Economic Framework",
+    "section": "5. Why Multi-Field OFPE Predictions Fail (Link to ML Results)",
+    "text": "5. Why Multi-Field OFPE Predictions Fail (Link to ML Results)\nUsing machine learning models (XGBoost, Random Forest, Causal Forest), we evaluate whether EONR predictions from other fields (EONR_o) approximate the benchmark EONR from the field’s own OFPE (EONR_d).\nEONR_d is constructed ex post using GAM-based yield–N curves fitted to each field (Wood 2017).\nResults reveal:\n\nLarge gaps between EONR_o and EONR_d\n\nNo convergence across ML methods\n\nInstability in predictions across price and weather regimes\n\nBiological implausibility in yield–N curves derived from cross-field predictions\n\nThese inconsistencies stem from:\n\nLimited number of OFPE trials → insufficient weather and spatial diversity\n\nStatic, low-resolution soil/topographic covariates (SSURGO, DEM)\n\nComplex interactions between N, water, mineralization, and weather\n\nMismatch between machine-learning predictors and underlying agronomic processes\n\nThus, current multi-field OFPE data are not yet a reliable substitute for a field’s own experiment.",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>2</span>  <span class='chapter-title'>Economic Framework</span>"
+    ]
+  },
+  {
+    "objectID": "03.Data_and_Experiment.html",
+    "href": "03.Data_and_Experiment.html",
+    "title": "3  Data and Design",
+    "section": "",
+    "text": "4 Data",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>3</span>  <span class='chapter-title'>Data and Design</span>"
+    ]
+  },
+  {
+    "objectID": "03.Data_and_Experiment.html#ofpe-dataset",
+    "href": "03.Data_and_Experiment.html#ofpe-dataset",
+    "title": "3  Data and Design",
+    "section": "OFPE Dataset",
+    "text": "OFPE Dataset\nOFPEs are designed as full-field, variable-rate input trials that assign controllable inputs—such as nitrogen (N) and seed rate—using spatially independent designs. To avoid confounding effects from correlated field characteristics, this study follows the DIFM (Data-Intensive Farm Management) experimental protocol, which ensures that the two trial inputs (seed and nitrogen) are orthogonally applied across spatial subplots within each field (Li, Taro Mieno, and Bullock 2021). This design minimizes spatial correlation between inputs and unobserved field characteristics, allowing for credible estimation of input-specific yield response functions. An illustration of the field-level nitrogen application design used in the OFPE trials is shown in Figure 4.1.",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>3</span>  <span class='chapter-title'>Data and Design</span>"
+    ]
+  },
+  {
+    "objectID": "03.Data_and_Experiment.html#ofpe-n-rate-design-map",
+    "href": "03.Data_and_Experiment.html#ofpe-n-rate-design-map",
+    "title": "3  Data and Design",
+    "section": "OFPE N-rate Design Map",
+    "text": "OFPE N-rate Design Map\n\n\n\n\n\n\n\n\nFigure 4.1: Conceptual OFPE N-rate design map with five spatially independent N rates (100, 120, 160, 180, 200 lb N/ac).\n\n\n\n\n\nThe experimental units in an OFPE are polygonal subplots within a field, each receiving a unique combination of input rates. Trials are implemented using GPS-enabled tractors with variable-rate technology. During the growing season, data on input applications and environmental conditions are collected in real time, and yield data are recorded at harvest. Following collection, raw data are processed using DIFM protocols (Edge, Mieno, and Bullock 2024), which include cleaning for spatial misalignment, outlier removal, and exclusion of transition zones where input rates shift between plots. Input and yield values are then aggregated at the subplot level (using median values), and subplots with excessive deviation are removed to avoid contamination from spatial edge effects.\n\n\n\n\n\nStratification of OFPE data: yield outcome, manageable inputs (N, S), field-specific covariates (soil and topography), and spatio-temporal weather summaries.\n\n\n\n\nField-specific characteristics are added by overlaying each experimental polygon with spatial soil data from the SSURGO database (clay, sand, silt, and water storage) and topographic features derived from Digital Elevation Models (DEM)—including slope, curvature, and elevation. Climate variables—such as total in-season precipitation, growing degree days (GDD), and extreme degree days (EDD)—are retrieved from the Daymet weather dataset (Thornton et al. 2022). These additions allow us to account for both spatial and temporal sources of heterogeneity in the estimation of yield–N response functions. The full dataset includes 169 field-year OFPEs collected from 42 farms across eight Midwestern states between 2016 and 2023. After quality control, 95 field-year datasets from 33 farms were retained for this study.",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>3</span>  <span class='chapter-title'>Data and Design</span>"
+    ]
+  },
+  {
+    "objectID": "04.Method.html",
+    "href": "04.Method.html",
+    "title": "4  Methods",
+    "section": "",
+    "text": "This study evaluates whether multi-field machine-learning models can approximate field-specific nitrogen decisions that would otherwise require directly implementing an On-Farm Precision Experiment (OFPE). To do so, we construct yield–nitrogen response functions using a combination of Random Forest (RF), Extreme Gradient Boosting (XGBoost), and a leave-one-location-out (LOLO) cross-validation framework. These multi-field predictions are then compared to field-specific benchmark responses derived from a Generalized Additive Model (GAM) estimated using only the data from each individual OFPE field-year. The resulting comparison quantifies how closely pooled models replicate the nitrogen response, the economically optimal nitrogen rate (EONR), and the associated profit outcomes that would be obtained through direct experimentation.\nRandom Forest is employed as a flexible, nonparametric learning algorithm capable of capturing complex relationships between nitrogen, soils, and weather conditions across heterogeneous OFPE fields. The method builds an ensemble of regression trees using bootstrap samples and randomized feature selection, ensuring that each tree explores different partitions of the predictor space (Breiman (2001)). For a given observation \\(x_{ij}\\) representing nitrogen rate and associated covariates, the Random Forest prediction takes the form\n\\[\n\\hat{f}^{RF}(x_{ij}) = \\frac{1}{B} \\sum_{b=1}^B T_b(x_{ij}),\n\\]\nwhere \\(T_b(\\cdot)\\) denotes the prediction from tree \\(b\\). This averaging process reduces variance and allows the model to represent highly nonlinear and interaction-driven agronomic responses without specifying a parametric structure.\nExtreme Gradient Boosting (XGBoost) provides a complementary modeling strategy by constructing a sequence of regression trees, each of which is optimized to correct the errors of the preceding ensemble. Formally, the boosted prediction is expressed as\n\\[\n\\hat{f}^{XGB}(x_{ij}) = \\sum_{k=1}^{K} \\lambda_k T_k(x_{ij}),\n\\]\nwhere \\(T_k(\\cdot)\\) are regression trees and \\(\\lambda_k\\) are weights learned through gradient-based optimization (Chen and Guestrin (2016)). Regularization penalizes tree complexity and prevents overfitting, making XGBoost particularly effective for representing multivariate, nonlinear nitrogen response patterns in high-dimensional OFPE settings.\nTo ensure that model assessment reflects genuine out-of-field predictive performance, both RF and XGBoost are trained under a leave-one-location-out (LOLO) cross-validation design. Each “location” corresponds to a complete field-year (i.e., one OFPE implementation). In each iteration, all observations from a given field-year are removed from the training set, and the model is fitted using the remaining dataset. Predictions are then generated exclusively for the held-out field. For a field-year \\(i\\), this procedure produces yield predictions of the form\n\\[\n\\hat{Y}_{ij}^{(-i)} = \\hat{f}_{-i}(N_{ij}, X_{ij}),\n\\]\nwhere \\(\\hat{f}_{-i}\\) denotes the model trained on all other fields. This design prevents information leakage across subplot clusters within a field and provides a stringent test of how well multi-field relational patterns generalize to new farms under real-world agronomic heterogeneity.\nModel evaluation requires a benchmark representation of the realized yield–nitrogen relationship in each field. This benchmark is derived from a Generalized Additive Model (GAM) estimated using only the subplot-level data from the field-year under consideration. The GAM specification introduces smooth terms for nitrogen and key environmental covariates, enabling flexible representation of the underlying response surface without assuming linearity or functional restrictions. For field-year \\(i\\), the benchmark response function is given by\n\\[\n\\hat{f}^{GAM}_{i}(N, X) =\n\\beta_0\n+ s_1(N) + s_2(\\text{SED}) + s_3(\\text{Slope})\n+ s_4(\\text{Elevation}) + s_5(\\text{Clay})\n+ s_6(\\text{Sand}) + s_7(\\text{Silt}) + \\varepsilon,\n\\]\nwhere \\(s_1, \\dots, s_7\\) denote smooth functions estimated from the field’s own observations (Wood (2017); Gardner, Mieno, and Bullock (2021); Hegedus, Maxwell, and Mieno (2023)). This single-field GAM serves as the ex post yield–nitrogen curve realized under the actual soil, weather, and management conditions of that field-year.\nUsing the GAM-estimated yield curve as the realized crop production function, economic outcomes are calculated by combining predicted yield with observed price and nitrogen cost information. The profit associated with nitrogen rate \\(N\\) in field \\(i\\) is\n\\[\n\\pi_i(N) = \\bar{p}\\,\\hat{f}^{GAM}_i(N) - \\bar{w}\\,N,\n\\]\nwhere \\(\\bar{p}\\) is the corn price and \\(\\bar{w}\\) is the per-unit nitrogen cost. The economically optimal nitrogen rate derived from direct OFPE data is then\n\\[\nEONR_d = \\arg\\max_N \\pi_i(N),\n\\]\nproviding a field-specific benchmark that reflects the true profit-maximizing decision for that year.\nMulti-field machine-learning models generate analogous profit functions using predictions from LOLO-trained models. For method \\(ML \\in \\{RF, XGB\\}\\), the predicted profit for field \\(i\\) is\n\\[\n\\pi^{ML}_i(N) = \\bar{p}\\,\\hat{f}^{ML}_{-i}(N) - \\bar{w}\\,N,\n\\]\nand the corresponding optimal nitrogen rate is\n\\[\nEONR_o = \\arg\\max_N \\pi^{ML}_i(N).\n\\]\nComparing \\(EONR_o\\) to \\(EONR_d\\) reveals the accuracy with which multi-field learning can substitute for direct experimentation. Differences in predicted and benchmark nitrogen rates are evaluated alongside differences in profit outcomes. The economic discrepancy,\n\\[\n\\Delta \\pi_i = \\pi_i(EONR_o) - \\pi_i(EONR_d),\n\\]\nsummarizes whether relying on pooled information leads to revenue gains or losses relative to the field-specific optimum. These comparisons allow us to determine both the predictive validity and the economic relevance of transferring information across OFPE fields, providing a direct empirical test of whether multi-field data can approach the decision quality generated by site-specific experiments.\n\n\n\n\n\n\nBreiman, Leo. 2001. “Random Forests.” Machine Learning 45 (1): 5–32.\n\n\nChen, Tianqi, and Carlos Guestrin. 2016. “Xgboost: A Scalable Tree Boosting System.” In Proceedings of the 22nd Acm Sigkdd International Conference on Knowledge Discovery and Data Mining, 785–94.\n\n\nGardner, Grant, Taro Mieno, and David S Bullock. 2021. “An Economic Evaluation of Site-Specific Input Application r x Maps: Evaluation Framework and Case Study.” Precision Agriculture 22: 1304–16.\n\n\nHegedus, Paul B, Bruce D Maxwell, and Taro Mieno. 2023. “Assessing Performance of Empirical Models for Forecasting Crop Responses to Variable Fertilizer Rates Using on-Farm Precision Experimentation.” Precision Agriculture 24 (2): 677–704.\n\n\nWood, Simon N. 2017. Generalized Additive Models: An Introduction with r. Chapman; Hall/CRC.",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>4</span>  <span class='chapter-title'>Methods</span>"
+    ]
+  },
+  {
+    "objectID": "05.Results(Limitation).html",
+    "href": "05.Results(Limitation).html",
+    "title": "5  Results(limitation)",
+    "section": "",
+    "text": "To demonstrate the limits of transferring information across OFPE fields, we focus on one representative field that has three replicated OFPE trials conducted over multiple years within a standard crop rotation. This field is not special within the dataset; rather, it is chosen because it contains repeated experiments under comparable management, making it an ideal example of the general patterns observed across the entire sample. Variable-importance profiles and decision-tree structures for all other fields exhibit nearly identical behaviors and are reported in the Appendix.\nFigure Figure 5.1 shows the variable-importance patterns obtained from Random Forest and XGBoost when the chosen field is excluded from the training set under leave-one-location-out (LOLO) cross-validation. Because LOLO removes only the target field in each iteration, and because all other fields remain in the training sample, the training data are nearly identical across years. This results in highly stable variable-importance rankings, which is precisely what we observe. Both RF and XGBoost consistently assign dominant importance to growing degree days, elevation, extreme degree days, and total seasonal precipitation. Soil texture and water-storage variables follow, while nitrogen rate receives only modest importance.\nThis pattern reflects a structural feature of the pooled OFPE dataset: most between-field variation in observed yields arises from differences in weather, landscape position, and long-run soil properties, rather than from differences in applied nitrogen rates. Consequently, the models learn that nitrogen plays a relatively small role in explaining the broad cross-field variation. While such rankings are reasonable for predicting average yields across diverse environments, they already signal a key limitation for nitrogen recommendation: the models place limited emphasis on nitrogen when learning from the multi-field dataset, making it difficult to recover field-specific curvature in the yield$–N response when predicting for an unseen field.\n\n\n\n\n\n\n\n\nFigure 5.1: Variable importance obtained from Random Forest (top row) and XGBoost (bottom row) under leave-one-location-out training for one representative field. Importance values are scaled within method. The dominant roles of weather, elevation, and site characteristics—and the consistently low weight placed on nitrogen rate—reflect the structure of the pooled multi-field dataset.\n\n\n\n\n\nFurther insight into how the model internalizes these relationships is provided by the first decision tree in the XGBoost ensemble for each of the three replicated trial years (Figures Figure 5.2–Figure 5.4). Across all years, the tree begins with splits on elevation and precipitation, followed by growing degree days; only deeper in the tree do soil properties or nitrogen rate appear. The structure is strikingly similar across all replications, which is expected because the LOLO procedure uses almost the same training set for each year. This stability indicates that the model is not adapting to the specific nitrogen–yield structure of the unseen field-year; instead, it relies on a general, weather-and-topography-dominated partition learned from the pooled dataset. Although this representation predicts average yield levels reasonably well, it offers little sensitivity to within-field nitrogen variation—the key requirement for recovering a meaningful nitrogen response.\n\n\n\n\n\n\n\n\nFigure 5.2: Decision tree from the XGBoost ensemble for the first replicated trial year in the example field. The tree splits primarily on elevation and seasonal precipitation, demonstrating that the model prioritizes environmental gradients over nitrogen when trained on pooled multi-field data.\n\n\n\n\n\n\n\n\n\n\n\n\n\nFigure 5.3: XGBoost decision tree for the second replicated trial year. The structure remains nearly identical to the first year, reflecting the fact that under leave-one-location-out cross-validation the training data are almost unchanged across years and that the model consistently relies on weather–topography partitions.\n\n\n\n\n\n\n\n\n\n\n\n\n\nFigure 5.4: XGBoost decision tree for the third replicated trial year. Despite crop rotation and differing weather conditions, the primary splits again emphasize elevation, precipitation, and growing degree days, illustrating the model’s limited sensitivity to nitrogen rate in unseen field-years.\n\n\n\n\n\nThe limitations of relying on pooled data for nitrogen recommendations become clearest when examining the predicted yield–nitrogen curves. Figure Figure 5.5 shows the relationship between nitrogen rate and predicted yield for each trial year, comparing the LOLO-trained Random Forest and XGBoost predictions to the field-specific GAM curve estimated from the direct OFPE data. The GAM curves exhibit smooth and interpretable nitrogen responses that differ across years—sometimes showing a clear interior optimum, other times flattening over a wide interval. These differences reflect real variation in weather, soil moisture, and rotational effects.\nIn contrast, the LOLO-trained machine-learning curves are almost entirely insensitive to nitrogen. Both RF and XGBoost produce step-like or nearly flat yield predictions across the nitrogen range, a direct consequence of nitrogen’s low importance and minimal representation in the tree structures. As a result, the models are unable to recover the curvature of the yield–N response and often push the predicted EONR toward the boundary of the observed N range or leave it essentially unidentified. This mismatch between predicted and realized nitrogen responses is not unique to this example field; similar discrepancies appear across the full set of fields, confirming that the multi-field models fail to transfer actionable nitrogen information to unseen locations.\n\n\n\n\n\n\n\n\nFigure 5.5: Yield–nitrogen response curves for three replicated trial years in the example field. Red lines represent the field-specific GAM response estimated from the direct OFPE data; green and blue lines represent Random Forest and XGBoost predictions under leave-one-location-out training. The multi-field models capture average yield levels but fail to reproduce the field-year-specific curvature of the nitrogen response, leading to boundary or poorly identified EONR estimates.\n\n\n\n\n\nTaken together, these findings show that cross-field machine-learning models trained under LOLO cross-validation explain substantial variation in average yield levels across farms but do not deliver transferable nitrogen-response information. The models consistently prioritize environmental gradients—weather, elevation, and stable soil attributes—which dominate cross-field variation. Nitrogen, being relatively small in its contribution to pooled predictive accuracy, receives minimal attention in the learned structures. As a result, although the models generalize well in terms of yield prediction, they fail to generalize in the dimension that matters for nitrogen management: the shape and slope of the yield–N response curve. The full set of fields analyzed in the Appendix reveals the same qualitative behavior, indicating that this limitation is systemic rather than field-specific.\n\n\n\n\nTable 5.1: Comparison of the estimated economically optimal nitrogen rates (EONR) and profits across GAM(from direct OFPE data), Random Forest, and XGBoost (trained) models for fields with three replicated OFPE trials. Values are scenario-averaged for each field-year, highlighting how multi-field machine learning models diverge from field-specific GAM benchmarks.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nComparison of EONR and profit across models for three-trial fields\n\n\nField\nField-year\n\nEconomically optimal N rate (lb N/ac)\n\n\nProfit at EONR ($/ac)\n\n\n\nGAM EONR\nRF EONR\nXGB EONR\nGAM Profit\nRF Profit\nXGB Profit\n\n\n\n\n23_2\n23_2_2018\n155\n146\n165\n1,091\n1,073\n1,059\n\n\n23_2\n23_2_2020\n201\n159\n165\n1,078\n1,068\n1,111\n\n\n23_2\n23_2_2022\n164\n152\n162\n1,057\n1,042\n1,090\n\n\n23_3\n23_3_2017\n164\n161\n171\n1,037\n905\n791\n\n\n23_3\n23_3_2019\n210\n160\n166\n775\n1,008\n1,014\n\n\n23_3\n23_3_2021\n196\n158\n171\n904\n984\n957\n\n\n28_5\n28_5_2018\n142\n123\n105\n1,111\n1,053\n1,069\n\n\n28_5\n28_5_2020\n183\n139\n135\n995\n1,058\n1,097\n\n\n28_5\n28_5_2022\n172\n145\n149\n1,197\n1,065\n1,092\n\n\n36_3\n36_3_2016\n160\n165\n173\n1,020\n1,040\n1,016\n\n\n36_3\n36_3_2018\n204\n190\n193\n1,171\n994\n1,010\n\n\n36_3\n36_3_2020\n192\n156\n156\n1,075\n1,068\n1,071\n\n\n3_1\n3_1_2016\n166\n160\n165\n636\n651\n579\n\n\n3_1\n3_1_2018\n207\n160\n170\n816\n797\n830\n\n\n3_1\n3_1_2020\n179\n116\n153\n590\n800\n630\n\n\n3_2\n3_2_2016\n159\n149\n184\n480\n585\n560\n\n\n3_2\n3_2_2018\n195\n167\n179\n890\n676\n683\n\n\n3_2\n3_2_2020\n123\n123\n168\n657\n718\n651\n\n\n40_1\n40_1_2017\n198\n170\n165\n1,011\n914\n1,015\n\n\n40_1\n40_1_2019\n259\n152\n168\n947\n950\n1,025\n\n\n40_1\n40_1_2021\n259\n176\n181\n1,127\n941\n985\n\n\n\n\n\n\n\n\n\n\nTable Table 5.1 summarizes the economically optimal nitrogen rates (EONR) and associated profits across all fields with three replicated OFPE trials, comparing the direct field-specific GAM benchmark to the RF and XGBoost models trained under leave-one-location-out. For each field-year, the table reports the mean EONR and the corresponding profit at that EONR under each model, averaged across the price scenarios used in the simulation. A clear pattern emerges from these comparisons: the EONR values predicted by RF and XGBoost frequently diverge substantially from the GAM benchmarks, often falling either well below or well above the field-specific optimum. This systematic mismatch provides direct evidence that the multi-field models, when trained on pooled data, fail to internalize the nitrogen-yield structure relevant for a new, unseen field. In other words, despite strong performance in predicting average yield levels, the RF and XGBoost models offer little transferable information about economically meaningful nitrogen responses, reinforcing the broader limitation documented throughout this section.",
+    "crumbs": [
+      "Tree Ensemble Prediction (2022)",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>Results(limitation)</span>"
+    ]
+  },
+  {
+    "objectID": "06.Bayesian_priors_APSIM.html",
+    "href": "06.Bayesian_priors_APSIM.html",
+    "title": "(PART) Bayesian-Hierarchical analysis (2025)",
+    "section": "",
+    "text": "APSIM-based Bayesian prior",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "(PART) Bayesian-Hierarchical analysis (2025)"
+    ]
+  },
+  {
+    "objectID": "06.Bayesian_priors_APSIM.html#why-apsim",
+    "href": "06.Bayesian_priors_APSIM.html#why-apsim",
+    "title": "(PART) Bayesian-Hierarchical analysis (2025)",
+    "section": "why APSIM?",
+    "text": "why APSIM?",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "(PART) Bayesian-Hierarchical analysis (2025)"
+    ]
+  },
+  {
+    "objectID": "07.Bayesian_update.html",
+    "href": "07.Bayesian_update.html",
+    "title": "(PART) Bayesian-Hierarchical analysis (2025)",
+    "section": "",
+    "text": "Hierarchical Bayesian updating",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "(PART) Bayesian-Hierarchical analysis (2025)"
+    ]
+  },
+  {
+    "objectID": "07.Bayesian_update.html#using-ofpe-and-weather",
+    "href": "07.Bayesian_update.html#using-ofpe-and-weather",
+    "title": "(PART) Bayesian-Hierarchical analysis (2025)",
+    "section": "using OFPE and weather",
+    "text": "using OFPE and weather",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "(PART) Bayesian-Hierarchical analysis (2025)"
+    ]
+  },
+  {
+    "objectID": "08.Bayesian_posterior.html",
+    "href": "08.Bayesian_posterior.html",
+    "title": "(PART) Bayesian-Hierarchical analysis (2025)",
+    "section": "",
+    "text": "Posterior N-response distributions",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "(PART) Bayesian-Hierarchical analysis (2025)"
+    ]
+  },
+  {
+    "objectID": "08.Bayesian_posterior.html#waht-is-posterior",
+    "href": "08.Bayesian_posterior.html#waht-is-posterior",
+    "title": "(PART) Bayesian-Hierarchical analysis (2025)",
+    "section": "waht is posterior",
+    "text": "waht is posterior",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "(PART) Bayesian-Hierarchical analysis (2025)"
+    ]
+  },
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "Bayesian Yield–N Modeling",
+    "section": "",
+    "text": "Preface\nThis book documents the progress of a research project that began in 2022 with several hundred field-years of On-Farm Precision Experiment (OFPE) data. The initial objective was straightforward: use field-scale experimental data from multiple locations to predict yield–nitrogen response at a new, unseen field. To do this, we applied tree-based machine-learning models—primarily Random Forests and XGBoost—and evaluated their generalization using leave-one-location-out (LOLO) cross-validation. The results were clear: although these models captured within-field patterns, they provided almost no transferable information across space or years. In practice, data from one field-year offered little predictive value for another. The core reason is structural: the main covariates available in OFPE data-SSURGO1soil properties and DEM-derived2 topographic features—are static and cannot capture the dynamic interactions of soil nitrogen, soil moisture, weather, and crop physiology. This limitation motivated a fundamental shift in approach.",
+    "crumbs": [
+      "Preface"
+    ]
+  },
+  {
+    "objectID": "index.html#transition-to-a-bayesian-framework",
+    "href": "index.html#transition-to-a-bayesian-framework",
+    "title": "Bayesian Yield–N Modeling",
+    "section": "Transition to a Bayesian Framework",
+    "text": "Transition to a Bayesian Framework\nBy 2025, the project evolved from a purely empirical ML framework into a Bayesian system that integrates mechanistic crop simulations with field observations. Rather than asking whether multi-field data alone can predict yield–N responses, the central question became: How can the APSIM3 generate scientifically grounded prior yield–N distributions for a region, and how can OFPE trials update these priors to produce field-specific posterior responses?",
+    "crumbs": [
+      "Preface"
+    ]
+  },
+  {
+    "objectID": "index.html#contents",
+    "href": "index.html#contents",
+    "title": "Bayesian Yield–N Modeling",
+    "section": "Contents",
+    "text": "Contents\nThis book reflects that progression.\nThe chapter Tree Ensemble Prediction (2022) revisits the original tree-model analysis and its limitations.\nThe chapter Bayesian–Hierarchical Analysis (2025) develops the Bayesian–APSIM framework, showing how mechanistic priors and OFPE field trials can be combined to produce uncertainty-aware and biologically interpretable yield–N distributions.",
+    "crumbs": [
+      "Preface"
+    ]
+  },
+  {
+    "objectID": "index.html#footnotes",
+    "href": "index.html#footnotes",
+    "title": "Bayesian Yield–N Modeling",
+    "section": "",
+    "text": "Soil Survey Geographic Database (USDA NRCS)↩︎\nDigital Elevation Model using LiDAR↩︎\nAgricultural Production Systems sIMulator↩︎",
+    "crumbs": [
+      "Preface"
+    ]
+  }
+]

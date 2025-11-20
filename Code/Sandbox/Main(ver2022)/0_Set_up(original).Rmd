@@ -142,4 +142,62 @@ price_tab <- price_tab %>% data.table() %>%
 
 cat("Setup complete.\n")
 
+
+#  Read all field boundary polygons
+bdry_files <- list.files(
+  here("Data", "Raw", "exp_bdry_data"),
+  pattern = "_bdry\\.rds$",
+  full.names = TRUE
+)
+
+bdry_list <- lapply(bdry_files, readRDS)
+
+# add a simple field_id from file name
+for (i in seq_along(bdry_list)) {
+  bdry_list[[i]]$field_id <- str_remove(basename(bdry_files[i]), "_bdry\\.rds$")
+}
+
+fields_sf <- do.call(rbind, bdry_list) %>%
+  st_transform(st_crs(ofpe_sf))
+
+# 3. Compute centroids for plotting / joining
+field_centroids <- st_centroid(fields_sf)
+
+# 5. Attach state info to each field (spatial join)
+field_loc <- st_join(field_centroids, ofpe_sf, join = st_within) %>%
+  st_drop_geometry() %>%
+  dplyr::select(field_id, stusps, fips)
+
+# 1. Extract farm / field / year from field_id
+field_loc2 <- field_loc %>%
+  mutate(field_id_clean = str_remove(field_id, "_bdry$")) %>%  # drop trailing "_bdry"
+  separate(
+    col   = field_id_clean,
+    into  = c("farm", "field", "year"),
+    sep   = "_",
+    convert = TRUE,      # automatically to numeric where possible
+    remove = FALSE
+  )
+
+# 1) First, summarize at farm–field level within each state
+by_ff <- field_loc2 %>%
+  group_by(stusps, farm, field) %>%
+  summarise(
+    n_years = n_distinct(year),   # how many years we have this farm–field
+    .groups = "drop"
+  )
+
+# 2) Then, summarize at state level
+state_summary <- by_ff %>%
+  group_by(stusps) %>%
+  summarise(
+    n_trials_total      = sum(n_years),      # total farm–field–year units
+    n_farm_field        = n(),              # number of unique farm–field combos
+    n_repl_farm_field   = sum(n_years > 1), # farm–field combos with >1 year
+    .groups = "drop"
+  ) %>%
+  arrange(stusps)
+
+state_summary
+
 ```

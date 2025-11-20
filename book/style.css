@@ -1,0 +1,53 @@
+/* --------------------------
+   Sidebar typography & layout
+---------------------------*/
+
+/* Slightly smaller text & tighter line height in sidebar */
+.sidebar {
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+/* Individual chapter links */
+.sidebar .sidebar-item .sidebar-link {
+  padding-top: 0.1rem;
+  padding-bottom: 0.1rem;
+}
+
+/* Part titles (chapter groups) */
+.sidebar .sidebar-item-section > .sidebar-item-text {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #555555 !important;
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem;
+  border-top: 1px solid #e5e5e5;
+  padding-top: 0.5rem;
+}
+
+/* Remove border above the very first part to avoid double line */
+.sidebar .sidebar-menu > .sidebar-item-section:first-of-type > .sidebar-item-text {
+  border-top: none;
+  padding-top: 0.25rem;
+}
+
+/* Active chapter indicator – thin blue bar + slightly bolder text */
+.sidebar .sidebar-item .sidebar-link.active {
+  border-left: 3px solid #0d6efd;
+  padding-left: 0.4rem;
+  font-weight: 500;
+}
+
+/* Search box spacing */
+.sidebar .sidebar-search {
+  margin-bottom: 0.5rem;
+}
+
+/* sidebar typography & layout ... */
+.quarto-sidebar,
+.sidebar.sidebar-navigation {
+  max-height: 100vh;
+  overflow-y: auto;
+}

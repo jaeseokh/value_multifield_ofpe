@@ -1,0 +1,129 @@
+# Overview 
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 7,
+  fig.height = 5,
+  dpi = 300
+)
+
+library(here)
+library(dplyr)
+library(sf)
+library(ggplot2)
+
+analysis_dir <- here::here("Data", "Processed", "Analysis_ready")
+
+field_centroids_sf <- readRDS(file.path(analysis_dir, "field_centroids_sf.rds"))
+
+us_map_sf <- sf::st_read(
+  here::here("Data", "Raw", "us_state_2023.shp"),
+  quiet = TRUE
+) |> sf::st_transform(4326)
+
+ofpe_fips <- c(17, 18, 19, 20, 21, 26, 27, 29, 31, 38, 39, 46, 55)
+
+ofpe_states_sf <- us_map_sf |>
+  dplyr::rename_with(tolower) |>
+  dplyr::filter(statefp %in% ofpe_fips) |>
+  dplyr::mutate(fips = as.numeric(statefp)) |>
+  dplyr::select(fips, stusps, geometry)
+```
+
+
+## Background {-}
+
+```{r fig1, echo=TRUE, cache=TRUE, fig.cap="Figure 1. Location of OFPE fields across the Midwest U.S."}
+
+coords <- sf::st_coordinates(field_centroids_sf)
+
+field_points_public <- field_centroids_sf |>
+  mutate(
+    lon = coords[, "X"],
+    lat = coords[, "Y"],
+    lon_round = round(lon, 1),
+    lat_round = round(lat, 1)
+  ) |>
+  select(ffy_id, farm, field, year, stusps, lon_round, lat_round) |>
+  st_as_sf(coords = c("lon_round", "lat_round"), crs = 4326)
+
+fig1_field_loc <- ggplot() +
+  geom_sf(data = ofpe_states_sf, fill = "grey95", color = "grey80") +
+  geom_sf(
+    data  = field_points_public,
+    color = "black",
+    alpha = 0.15,
+    size  = 8,
+    shape = 16
+  ) +
+  theme_minimal() +
+  coord_sf(
+    xlim = range(sf::st_coordinates(ofpe_states_sf)[, 1]),
+    ylim = range(sf::st_coordinates(ofpe_states_sf)[, 2])
+  ) +
+  labs(x = NULL, y = NULL)
+
+fig1_field_loc
+
+```
+
+This figure shows the approximate locations of all OFPE fields used in the project.
+Coordinates are intentionally coarsened to protect field privacy and highlight only the
+spatial footprint and weather-diversity motivating the multi-field analysis.
+
+## Research Objectives {-}
+
+The original objective was to use multi-field OFPE data to predict yield–nitrogen (yield–N)
+response at **new fields**, asking:
+
+- *Can yield–N responses at one field inform predictions at another?*  
+- *How transferable are empirical relationships across fields and years?*  
+- *Can purely data-driven ML models extract cross-field structure?*
+
+These questions shaped the 2022 modeling strategy.
+
+## Method {-}
+
+The 2022 analysis used **tree-ensemble models**:
+
+- Random Forests  
+- XGBoost  
+
+By these model the yield($bu/ac$) of OFPE fields were trained on:
+
+- Nitrogen rate ($lbs/ac$) 
+- SSURGO soil attributes^[Soil Survey Geographic Database (USDA NRCS)]  
+- DEM-derived^[Digital Elevation Model] topography  
+- In-season accumulated weather info (precipitation($mm$), GDD^[Growing Degree Days], EDD^[Extreme Degree Days] )
+
+With generalization assessed via the cross-validation method:
+
+### Leave-One-Location-Out (LOLO) validation
+
+1. Train on all fields *except* one  
+2. Predict the held-out field  
+3. Repeat for each field  
+
+Representing cases where producers lack prior field trials.
+
+## Findings (Limitations) {-}
+
+LOLO revealed:
+
+- strong **within-field** fit  
+- weak **cross-field** and **cross-year** performance  
+
+Reasons:
+
+- **Spatial instability:** learned patterns do not transfer  
+- **Poor extrapolation:** unseen soil–weather combinations fail  
+- **Static predictors:** SSURGO + DEM do not capture dynamic ground N and water interaction 
+- **Process mismatch:** yield–N depends on nitrogen cycling, water stress, and crop growth  
+
+This motivated the transition to the **Bayesian–APSIM approach** used in later chapters.
+
+```

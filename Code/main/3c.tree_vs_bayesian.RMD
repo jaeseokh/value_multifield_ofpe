@@ -1,0 +1,349 @@
+---
+title: "Stage 3 — Economic EONR & Profit under Price Scenarios (MB & QP)"
+author: "Jaeseok Hwang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+  pdf:
+    toc: true
+    number-sections: true
+editor_options:
+  chunk_output_type: console
+params:
+  use_mb:  true   # load & evaluate MB model if available
+  use_qp:  true   # load & evaluate QP model if available
+  seed:    2025
+---
+
+# Purpose
+
+Turn Stage-2 posterior curves into **economic decisions**:
+- define 9 price scenarios,
+- compute **posterior profit** over an N-grid,
+- obtain **posterior EONR** (argmax profit per draw),
+- summarize EONR and expected profit by field × model × scenario.
+
+---
+
+## 0. Setup
+
+```{r setup}
+#| label: setup
+#| include: false
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE, error = FALSE,
+  fig.align = "center", fig.width = 7.5, fig.height = 4.7, dpi = 200,
+  collapse = TRUE, comment = "#>"
+)
+set.seed(params$seed)
+options(mc.cores = parallel::detectCores())
+```
+
+
+```{r libraries} 
+
+#| label: libraries
+suppressPackageStartupMessages({
+library(dplyr); library(tidyr); library(stringr); library(purrr)
+library(ggplot2); library(readr); library(here)
+library(glue); library(broom)
+library(brms) # to load & predict from Stage-2 fits
+library(posterior) # for posterior draws handling
+library(modelsummary) # tables
+})
+
+```
+
+## Paths 
+
+```{r paths}
+
+#| label: paths
+proj <- here::here()
+dirs <- list(
+data_processed = file.path(proj, "Data", "Processed", "Analysis_ready"),
+figs = file.path(proj, "Results", "Figures", "stage3"),
+tabs = file.path(proj, "Results", "Tables", "stage3"),
+fits2 = file.path(proj, "Results", "Fits", "stage2")
+)
+invisible(lapply(dirs, dir.create, recursive = TRUE, showWarnings = FALSE))
+
+```
+
+
+## Data and model fit
+
+```{r load} 
+#| label: load-data
+
+# Use same cleaned dataset structure as Stage 2 (for covariates & fields)
+
+data_path <- file.path(dirs$data_processed, "stacked_analysis_table.rds")
+df <- readRDS(data_path)
+
+dat <- df %>%
+mutate(
+farm_field = stringr::str_remove(ffy_id, "_[0-9]{4}$"),
+year       = stringr::str_extract(ffy_id, "[0-9]{4}"),
+farm_field = factor(farm_field),
+year       = factor(year)
+) %>%
+transmute(
+ffy_id = factor(ffy_id),
+farm_field, year,
+yield  = yield,
+n_rate = n_rate,
+precip_S2, gdd_S2, edd_S2,
+precip_postN_d15, heavy_rain_days_postN_d15
+) %>%
+filter(is.finite(yield), is.finite(n_rate)) %>%
+group_by(farm_field) %>%
+mutate(n_mean = mean(n_rate, na.rm = TRUE),
+n_sd   = sd(n_rate,   na.rm = TRUE)) %>%
+filter(n_rate >= n_mean - 1.5*n_sd,
+n_rate <= n_mean + 1.5*n_sd) %>%
+ungroup() %>%
+select(-n_mean, -n_sd) %>%
+mutate(
+# standardize timing covariates as in Stage 2
+z_precip_S2 = as.numeric(scale(precip_S2)),
+z_gdd_S2    = as.numeric(scale(gdd_S2)),
+z_edd_S2    = as.numeric(scale(edd_S2)),
+z_postP15   = as.numeric(scale(precip_postN_d15)),
+z_postHR15  = as.numeric(scale(heavy_rain_days_postN_d15))
+)
+
+glue("Stage3 data: N={nrow(dat)}, fields={dplyr::n_distinct(dat$farm_field)}, years={dplyr::n_distinct(dat$year)}")
+
+
+#| label: load-fits
+fit_mb_path <- file.path(dirs$fits2, "fit_mb.rds")
+fit_qp_path <- file.path(dirs$fits2, "fit_qp.rds")
+
+fit_mb <- if (params$use_mb && file.exists(fit_mb_path)) readRDS(fit_mb_path) else NULL
+fit_qp <- if (params$use_qp && file.exists(fit_qp_path)) readRDS(fit_qp_path) else NULL
+
+glue("MB fit: {if (!is.null(fit_mb)) 'loaded' else 'not found'}; QP fit: {if (!is.null(fit_qp)) 'loaded' else 'not found'}.")
+
+
+```
+
+# Price scenarios (editable)
+
+```{r price-scenarios} 
+#| label: price-scenarios
+
+# Base prices (edit as needed)
+
+grain_base <- 4.5   # e.g., $/bu for corn (placeholder)
+n_base     <- 1.0   # $ per unit N (kg/ha equivalent)
+
+grain_mult <- c(0.8, 1.0, 1.2)
+n_mult     <- c(0.7, 1.0, 1.3)
+
+price_scen <- tidyr::crossing(
+grain_mult = grain_mult,
+n_mult     = n_mult
+) %>%
+mutate(
+scenario_id = paste0("G", grain_mult, "_N", n_mult),
+grain_price = grain_base * grain_mult,
+n_price     = n_base   * n_mult
+) %>%
+select(scenario_id, grain_price, n_price)
+
+price_scen
+write_csv(price_scen, file.path(dirs$tabs, "price_scenarios.csv"))
+
+```
+
+# Posterior profit & EONR extraction
+
+```{r n grid} 
+
+#| label: n-grid
+n_min <- floor(max(0, min(dat$n_rate, na.rm=TRUE)))
+n_max <- ceiling(max(dat$n_rate, na.rm=TRUE))
+n_by  <- 2
+n_grid <- tibble(n_rate = seq(n_min, n_max, by = n_by))
+n_grid
+
+```
+
+
+```{r n profit-helpers} 
+#| label: profit-helpers
+
+# Build baseline covariate rows: z-covariates at 0 (typical) & year effect averaged via re_formula
+
+base_cov_by_field <- dat %>%
+group_by(farm_field) %>%
+summarise(
+z_precip_S2 = 0, z_gdd_S2 = 0, z_edd_S2 = 0,
+z_postP15 = 0,  z_postHR15 = 0,
+.groups = "drop"
+)
+
+build_newdata <- function(model_name) {
+
+# QP and MB Stage-2 used these covariate names; keep consistent
+
+base_cov_by_field %>% tidyr::crossing(n_grid)
+}
+
+# For memory safety we’ll use population-level predictions (re_formula = NA),
+
+# which include the group-level structure; you can switch to re_formula = NULL to include REs.
+
+get_epred <- function(fit, newdata) {
+posterior_epred(fit, newdata = newdata, re_formula = NA)
+}
+
+# Given epred (draws x rows), compute EONR and profit summary by field × scenario
+
+summarise_eonr_profit <- function(epred, newdata, price_tbl, model_name) {
+
+# bind newdata indexing
+
+nd <- newdata %>%
+mutate(row_id = row_number())
+
+# split rows per field to efficiently slice columns
+
+rows_by_field <- split(nd$row_id, nd$farm_field)
+
+# convert epred draws to matrix
+
+ep <- as.matrix(epred)  # iterations x rows
+
+res <- map_dfr(names(rows_by_field), function(ff){
+ridx <- rows_by_field[[ff]]
+# yields per draw × n-grid
+Y    <- ep[, ridx, drop = FALSE]  # draws x N_grid_rows
+Nvec <- nd$n_rate[ridx]
+
+map_dfr(seq_len(nrow(price_tbl)), function(i_sc){
+  pg <- price_tbl$grain_price[i_sc]
+  pn <- price_tbl$n_price[i_sc]
+  scen <- price_tbl$scenario_id[i_sc]
+
+  # profit per draw × N: pg * Y - pn * N
+  # broadcast N across columns
+  prof <- sweep(Y, 2, (pn * Nvec), FUN = '-')        # subtract cost
+  prof <- sweep(prof, 2, ( - pg * 0 ), FUN = '+')    # no-op (kept for clarity)
+  prof <- prof + pg * Y                               # pg*Y - pn*N
+
+  # argmax index per draw
+  idx_max <- max.col(prof, ties.method = "first")
+  eonr_draw <- Nvec[idx_max]
+
+  # posterior summaries
+  tibble(
+    farm_field = ff,
+    model      = model_name,
+    scenario_id = scen,
+    EONR_med  = median(eonr_draw),
+    EONR_lwr  = quantile(eonr_draw, 0.1),
+    EONR_upr  = quantile(eonr_draw, 0.9),
+    # expected profit at the median EONR (approx via mean across draws at closest grid N)
+    ExpProfit_at_EONR = {
+      # find nearest grid index to EONR_med
+      j <- which.min(abs(Nvec - median(eonr_draw)))
+      mean(prof[, j])
+    }
+  )
+})
+
+
+})
+
+res
+}
+
+```
+
+```{r eval-mb} 
+
+#| label: evaluate-mb
+res_mb <- NULL
+if (!is.null(fit_mb)) {
+new_mb <- build_newdata("MB")
+ep_mb  <- get_epred(fit_mb, new_mb)
+res_mb <- summarise_eonr_profit(ep_mb, new_mb, price_scen, "MB")
+write_csv(res_mb, file.path(dirs$tabs, "stage3_eonr_profit_MB.csv"))
+head(res_mb)
+}
+
+#| label: evaluate-qp
+res_qp <- NULL
+if (!is.null(fit_qp)) {
+new_qp <- build_newdata("QP")
+ep_qp  <- get_epred(fit_qp, new_qp)
+res_qp <- summarise_eonr_profit(ep_qp, new_qp, price_scen, "QP")
+write_csv(res_qp, file.path(dirs$tabs, "stage3_eonr_profit_QP.csv"))
+head(res_qp)
+}
+
+
+
+```
+
+
+# Combine & compare
+
+```{r comb_compare} 
+
+#| label: combine-results
+res_all <- bind_rows(
+if (!is.null(res_mb)) res_mb else NULL,
+if (!is.null(res_qp)) res_qp else NULL
+)
+
+if (nrow(res_all) > 0) {
+write_csv(res_all, file.path(dirs$tabs, "stage3_eonr_profit_ALL.csv"))
+modelsummary::datasummary_df(res_all, title = "Posterior EONR & Expected Profit by Field × Model × Scenario", output = "markdown")
+} else {
+cat("No results to display (no fits found?).")
+}
+```
+
+```{r plot eonr} 
+
+if (nrow(res_all) > 0) {
+p_eonr <- res_all %>%
+ggplot(aes(x = scenario_id, y = EONR_med, ymin = EONR_lwr, ymax = EONR_upr,
+color = model, group = model)) +
+geom_point(position = position_dodge(width = 0.4)) +
+geom_errorbar(width = 0.15, position = position_dodge(width = 0.4)) +
+facet_wrap(~ farm_field, scales = "free_y") +
+labs(title = "Posterior EONR by price scenario (median with 80% CI)",
+x = "Scenario", y = "EONR (kg N/ha)") +
+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p_eonr
+ggsave(file.path(dirs$figs, "stage3_EONR_by_scenario.png"), p_eonr, width = 12, height = 8, dpi = 200)
+}
+
+```
+
+```{r plot profile} 
+
+#| label: plot-profit
+if (nrow(res_all) > 0) {
+p_profit <- res_all %>%
+ggplot(aes(x = scenario_id, y = ExpProfit_at_EONR, color = model, group = model)) +
+geom_line(position = position_dodge(width = 0.4)) +
+geom_point(position = position_dodge(width = 0.4)) +
+facet_wrap(~ farm_field, scales = "free_y") +
+labs(title = "Expected profit at posterior EONR by scenario",
+x = "Scenario", y = "Expected Profit") +
+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p_profit
+ggsave(file.path(dirs$figs, "stage3_ExpectedProfit_at_EONR.png"), p_profit, width = 12, height = 8, dpi = 200)
+}
+
+
+
+```

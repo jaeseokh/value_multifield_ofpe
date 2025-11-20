@@ -1,0 +1,190 @@
+---
+title: "1. Data Processing"
+author: "Jaeseok Hwang"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+# PURPOSE
+
+- This R Markdown script executes the data processing phase of the project pipeline.
+- Its main objective is to take raw on-farm trial data and integrate it with external geospatial datasets to create a comprehensive, analysis-ready dataset for each field-year.
+- It relies on `functions_for_processing.R` to construct, for each field-year:
+    - Experimental variables (yield, N and seed rates, IDs),
+    - Area-weighted SSURGO soil properties,
+    - DEM-based topography (elevation, slope, aspect, TPI),
+    - Timing-specific weather features from Daymet (stage-based and post-N windows),
+    - sf geometry (EPSG:4326).
+- The script:
+    1. Reads the list of OFPE experimental field-years.
+    2. Builds a date manifest with sowing, N, and harvest dates (`s_time`, `n_time`, `yield_time`).
+    3. Calls `build_field_dataset()` for each field-year (which internally calls `build_weather_features()`, `compute_stage_features()`, and `compute_postN_features()`).
+    4. Saves per-field merged sf objects as `<ffy_id>_merged_data.rds`.
+    5. Stacks all fields into a single, geometry-free table `stacked_analysis_table.rds` for downstream modeling.
+
+# knitr options
+
+```{r setup, cache=FALSE, echo=FALSE, results="hide"}
+library(knitr)
+knitr::opts_chunk$set(
+  cache = FALSE,
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  error = TRUE,
+  fig.retina = 6,
+  fig.height = 9,
+  fig.width = 9
+)
+options(knitr.duplicate.label = "allow")
+```
+
+# Packages
+
+```{r packages}
+library(here)
+library(jsonlite)
+library(data.table)
+library(tidyverse)
+
+# Load modular processing utilities (IO + soils + topo + weather + stack)
+source(here("Code","Functions","functions_for_processing.R"))
+```
+
+# Preparation
+
+```{r preparations}
+# Field-level metadata (if needed later)
+field_data <- jsonlite::fromJSON(
+  file.path(here("Data","Raw"),"field_parameter.json"),
+  flatten = TRUE
+) |> data.table()
+
+conv_table <- jsonlite::fromJSON(
+  file.path(here("Data","Raw"),"nitrogen_conversion.json"),
+  flatten = TRUE
+) |> data.table()
+
+# Project-specific setup (optional)
+if (file.exists(here("Code","Main","0_Set_up.R"))) {
+  source(here("Code","Main","0_Set_up.R"))
+}
+```
+
+# 1. Trial field lists
+
+```{r field-list}
+# Use helper from functions_for_processing.R to find all trial IDs
+trial_lists <- read_trial_lists(base_dir = here("Data","Raw"))
+
+ffy_id_data <- trial_lists$data_ids
+ffy_id_bdry <- trial_lists$bdry_ids
+
+# Sanity check: IDs in data and boundary folders should align
+match(ffy_id_data, ffy_id_bdry)
+
+# Exclude problematic / out-of-scope trials (out-of-state or incomplete)
+ffy_id_dat <- ffy_id_data[!ffy_id_data %in% c(
+  "15_1_2023","15_2_2023","15_3_2023",  # out-of-state
+  "27_1_2023",                          # bad geometry / incomplete
+  "9_1_2022","9_2_2022"                 # problematic timing
+)]
+
+# Save the list of valid field-year IDs for reference
+saveRDS(ffy_id_dat, here("Data","Processed","ffy_id_list.rds"))
+
+length(ffy_id_dat)
+head(ffy_id_dat)
+```
+
+# 2. Build date manifest (timing info for weather features)
+
+```{r date-manifest}
+# Raw timing + product info (per field-year)
+date_info_raw <- readRDS(here("Data","Raw","date_product_info.rds"))
+setDT(date_info_raw)
+
+cat("Loaded raw date info with", nrow(date_info_raw), "rows.\n")
+
+# Restrict to valid field-years
+date_info_filtered <- date_info_raw[ffy_id %in% ffy_id_dat]
+
+cat("Filtered date info to", nrow(date_info_filtered), "rows.\n")
+
+# Date manifest used by build_field_dataset() / build_weather_features()
+# Must contain: ffy_id, s_time, n_time, yield_time
+date_manifest <- date_info_filtered[, .(
+  ffy_id,
+  s_time,
+  n_time,
+  yield_time
+)]
+
+# Quick check
+head(date_manifest)
+```
+
+# 3. Process each field-year with build_field_dataset()
+
+```{r per-field}
+# Container for per-field sf objects (with soils, topo, and ALL timing-specific weather vars)
+field_sf_list <- vector("list", length(ffy_id_dat))
+names(field_sf_list) <- ffy_id_dat
+
+for (i in seq_along(ffy_id_dat)) {
+  current_ffy <- ffy_id_dat[i]
+  cat("\n-----------------------------\n")
+  cat("Processing field-year:", current_ffy, "(", i, "of", length(ffy_id_dat), ")\n")
+  
+  field_sf_list[[current_ffy]] <- tryCatch(
+    {
+      build_field_dataset(
+        ffy_id        = current_ffy,
+        base_dir      = here("Data","Raw"),
+        date_manifest = date_manifest,
+        cache_dir     = here("Data","Processed","Analysis_ready")
+      )
+    },
+    error = function(e){
+      warning("Failed to process ", current_ffy, ": ", conditionMessage(e))
+      NULL
+    }
+  )
+}
+
+# Drop any failed fields
+field_sf_list <- field_sf_list[!vapply(field_sf_list, is.null, logical(1))]
+
+cat("\nSuccessfully processed", length(field_sf_list), "field-years.\n")
+```
+
+# 4. Stack across fields and save stacked_analysis_table.rds
+
+```{r stack-save}
+# Stack geometry-dropped data.frames across fields
+stacked_analysis_table <- stack_fields(field_sf_list)
+
+# This table now includes:
+# - experimental variables
+# - soils (clay, sand, silt, water_storage)
+# - topo (elev, slope, aspect, TPI)
+# - timing-specific weather variables (from compute_stage_features and compute_postN_features)
+#   such as:
+#   * precip_S1–S4, dry_days_S1–S4, max_dry_spell_S1–S4, heavy_rain_days_S1–S4, gdd_S1–S4, edd_S1–S4
+#   * precip_N_to_yield, gdd_N_to_yield, edd_N_to_yield
+#   * dry_days_N_to_yield, max_dry_spell_N_to_yield, heavy_rain_days_N_to_yield
+#   * precip_postN_d7/d15/d30, heavy_rain_days_postN_d7/d15/d30
+#   * gdd_postN_d7/d15/d30, edd_postN_d7/d15/d30
+#   * n_app_stage, precip_15_post_N, days_to_N_app
+# - plus seasonal totals and 5-/30-year climatology from build_weather_features()
+
+data_path <- here("Data","Processed","Analysis_ready","stacked_analysis_table.rds")
+saveRDS(stacked_analysis_table, data_path)
+
+cat("Stacked analysis table saved to: ", data_path, "\n")
+
+dplyr::glimpse(stacked_analysis_table)
+```

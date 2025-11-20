@@ -1,0 +1,7 @@
+# (PART) Bayesian-Hierarchical analysis (2025) {-}
+
+#  Posterior N-response distributions
+
+##  waht is posterior  {-}
+
+ 

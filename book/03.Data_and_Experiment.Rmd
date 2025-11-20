@@ -1,0 +1,191 @@
+---
+title: "Data and Design"
+bibliography: value_refs.bib
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(here)
+```
+
+# Data
+
+## OFPE Dataset {-}
+
+OFPEs are designed as full-field, variable-rate input trials that assign controllable inputs—such as nitrogen (N) and seed rate—using spatially independent designs. To avoid confounding effects from correlated field characteristics, this study follows the DIFM (Data-Intensive Farm Management) experimental protocol, which ensures that the two trial inputs (seed and nitrogen) are orthogonally applied across spatial subplots within each field [@lix2021design]. This design minimizes spatial correlation between inputs and unobserved field characteristics, allowing for credible estimation of input-specific yield response functions. An illustration of the field-level nitrogen application design used in the OFPE trials is shown in @fig-app_map.
+
+
+## OFPE N-rate Design Map {-}
+
+```{r fig-app_map, fig.cap="Conceptual OFPE N-rate design map with five spatially independent N rates (100, 120, 160, 180, 200 lb N/ac).", fig.align="center", fig.width=4, fig.height=4}
+
+set.seed(123)
+
+# 24x24 grid = experimental subplotss
+grid_df <- expand.grid(
+  col = 1:24,   # like longitude index
+  row = 1:24    # like latitude index
+)
+
+n_levels <- c(100, 120, 160, 180, 200)
+
+# deterministic spatial pattern based on (row, col)
+# this creates a rotated band / checker pattern of N rates
+grid_df <- grid_df |>
+  mutate(
+    pattern_index = (col + 2 * row) %% length(n_levels) + 1,
+    N_rate        = n_levels[pattern_index],
+    N_rate_f      = factor(
+      N_rate,
+      levels = n_levels,
+      labels = paste0(n_levels, " lb/ac")
+    )
+  )
+
+ggplot(grid_df, aes(x = col, y = row, fill = N_rate_f)) +
+  geom_tile(color = "grey40", linewidth = 0.15) +
+  scale_y_reverse() +
+  scale_fill_brewer(palette = "RdYlBu", direction = -1, name = "N rate") +
+  coord_equal() +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 9),
+    legend.text  = element_text(size = 8)
+  )
+
+```
+
+
+The experimental units in an OFPE are polygonal subplots within a field, each receiving a unique combination of input rates. Trials are implemented using GPS-enabled tractors with variable-rate technology. During the growing season, data on input applications and environmental conditions are collected in real time, and yield data are recorded at harvest. Following collection, raw data are processed using DIFM protocols [@edge2024processing], which include cleaning for spatial misalignment, outlier removal, and exclusion of transition zones where input rates shift between plots. Input and yield values are then aggregated at the subplot level (using median values), and subplots with excessive deviation are removed to avoid contamination from spatial edge effects.
+
+
+```{r data_stratification, fig.cap="Stratification of OFPE data: yield outcome, manageable inputs (N, S), field-specific covariates (soil and topography), and spatio-temporal weather summaries.", fig.align="center", fig.width=6, fig.height=4}
+
+# Boxes (positions in an abstract x–y space)
+boxes <- data.frame(
+  name = c("Yield", "Inputs", "FieldCov", "Weather"),
+  xmin = c(3.5, 3.2, 0.3, 6.3),
+  xmax = c(6.5, 6.8, 3.7, 9.7),
+  ymin = c(7.4, 4.0, 0.7, 0.7),
+  ymax = c(9.5, 6.1, 3.3, 3.3),
+  fill = c("#ffe0b2", "#e3f2fd", "#f5f5f5", "#e0f7fa")
+)
+
+# Text inside boxes
+labels <- data.frame(
+  x = c(5.0, 5.0, 2.0, 8.0),
+  y = c(8.45, 5.1, 2.0, 2.0),
+  txt = c(
+    "Yield\n(subplot-level)",
+    "Manageable inputs:\nN (nitrogen), S (seed)",
+    "Field-specific covariates:\nSSURGO soil (clay, sand,\nwater_storage)\nTopography (slope,\ncurvature, elevation)",
+    "Spatio-temporal weather:\nGDD, EDD,\nprecipitation\n(one value per field-year)"
+  )
+)
+
+# Arrows: from covariates and weather to inputs, then to yield
+arrows <- data.frame(
+  x  = c(2.0, 8.0, 5.0),
+  y  = c(3.3, 3.3, 6.1),
+  xend = c(5.0, 5.0, 5.0),
+  yend = c(4.0, 4.0, 7.4)
+)
+
+ggplot() +
+  geom_rect(
+    data = boxes,
+    aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = name),
+    color = "grey40"
+  ) +
+  scale_fill_manual(
+    values = setNames(boxes$fill, boxes$name),
+    guide = "none"
+  ) +
+  geom_text(
+    data = labels,
+    aes(x = x, y = y, label = txt),
+    size = 3
+  ) +
+  geom_segment(
+    data = arrows,
+    aes(x = x, y = y, xend = xend, yend = yend),
+    arrow = arrow(length = unit(0.18, "cm")),
+    linewidth = 0.5
+  ) +
+  coord_cartesian(xlim = c(0, 10), ylim = c(0, 10), expand = FALSE) +
+  theme_void()
+  
+```
+
+Field-specific characteristics are added by overlaying each experimental polygon with spatial soil data from the SSURGO database (clay, sand, silt, and water storage) and topographic features derived from Digital Elevation Models (DEM)—including slope, curvature, and elevation. Climate variables—such as total in-season precipitation, growing degree days (GDD), and extreme degree days (EDD)—are retrieved from the Daymet weather dataset [@thornton2022daymet]. These additions allow us to account for both spatial and temporal sources of heterogeneity in the estimation of yield–N response functions. 
+The full dataset includes 169 field-year OFPEs collected from 42 farms across eight Midwestern states between 2016 and 2023. After quality control, 95 field-year datasets from 33 farms were retained for this study.
+
+
+# Across-Field Diversity in Yield, N, and Weather {-}
+
+To highlight the diversity of production environments represented in the OFPE dataset, we summarize each field-year by its median yield, median nitrogen rate, and growing-season weather conditions (precipitation, growing degree days, and extreme degree days) (see @fig-across-field-diversity,). Each point in the figure below corresponds to a field-year (identified by ffy_id), ordered within each panel by the value of the variable. The wide spread across these summaries illustrates substantial heterogeneity in both management (N rates) and weather (precipitation, GDD, EDD), motivating flexible modeling approaches that can adapt to different field-year conditions.
+```{r fig-across-field-diversity, fig.cap="field-year conditions vary widely in both agronomic and environmental dimensions", fig.align="center", fig.width=6, fig.height=4}
+
+# Load data
+
+stacked <- readRDS(
+here::here("Data", "Processed", "Analysis_ready", "stacked_analysis_table.rds")
+)
+
+# Aggregate to field-year level
+
+field_year_summary <- stacked %>%
+group_by(ffy_id) %>%
+summarise(
+yield_med   = median(yield, na.rm = TRUE),
+n_med       = median(n_rate, na.rm = TRUE),
+prcp_t_mean = mean(prcp_t, na.rm = TRUE),
+gdd_t_mean  = mean(gdd_t, na.rm = TRUE),
+.groups = "drop"
+) %>%
+mutate(field_index = row_number())   # simple numeric index for plotting
+
+# Select and reshape variables
+
+field_year_long <- field_year_summary %>%
+transmute(
+field_index,
+`Median N rate`  = n_med,
+`Median yield`   = yield_med,
+`Season precip.` = prcp_t_mean,
+`Season GDD`     = gdd_t_mean
+) %>%
+pivot_longer(
+cols      = c(`Median N rate`, `Median yield`,
+`Season precip.`, `Season GDD`),
+names_to  = "variable",
+values_to = "value"
+)
+
+# Plot
+
+ggplot(field_year_long,
+aes(x = value,
+y = field_index)) +
+geom_point(alpha = 0.7, size = 1.8) +
+facet_wrap(~ variable, scales = "free_x", ncol = 1) +
+labs(
+x = NULL,
+y = "Field-year index"
+) +
+theme_bw(base_size = 10) +
+theme(
+strip.text = element_text(face = "bold"),
+panel.grid.major.y = element_blank(),
+panel.grid.minor = element_blank()
+)
+
+```

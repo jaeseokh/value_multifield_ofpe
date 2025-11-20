@@ -5,7 +5,7 @@
 renv/library/
 renv/staging/
 Code/Main/Anonymize_Naming.RMD
-Code/Main/N_unit_check.RMD
+Code/Sandbox/N_unit_check.RMD
 
 Writing/*
 Literature/*

@@ -1,0 +1,13 @@
+# Preface {-}
+
+This book documents the progress of a research project that began in 2022 with several hundred field-years of On-Farm Precision Experiment (OFPE) data. The initial objective was straightforward: use field-scale experimental data from multiple locations to predict yield–nitrogen response at a new, unseen field. To do this, we applied tree-based machine-learning models—primarily Random Forests and XGBoost—and evaluated their generalization using leave-one-location-out (LOLO) cross-validation. The results were clear: although these models captured within-field patterns, they provided almost no transferable information across space or years. In practice, data from one field-year offered little predictive value for another. The core reason is structural: the main covariates available in OFPE data-SSURGO^[Soil Survey Geographic Database (USDA NRCS)]soil properties and DEM-derived^[Digital Elevation Model using LiDAR] topographic features—are static and cannot capture the dynamic interactions of soil nitrogen, soil moisture, weather, and crop physiology. This limitation motivated a fundamental shift in approach.
+
+## Transition to a Bayesian Framework {-}
+
+By 2025, the project evolved from a purely empirical ML framework into a Bayesian system that integrates mechanistic crop simulations with field observations. Rather than asking whether multi-field data alone can predict yield–N responses, the central question became: **How can the APSIM^[Agricultural Production Systems sIMulator] generate scientifically grounded prior yield–N distributions for a region, and how can OFPE trials update these priors to produce field-specific posterior responses?**
+
+## Contents {-}
+
+This book reflects that progression.  
+The chapter *Tree Ensemble Prediction (2022)* revisits the original tree-model analysis and its limitations.  
+The chapter *Bayesian–Hierarchical Analysis (2025)* develops the Bayesian–APSIM framework, showing how mechanistic priors and OFPE field trials can be combined to produce uncertainty-aware and biologically interpretable yield–N distributions.
