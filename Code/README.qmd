@@ -1,79 +1,67 @@
 ---
-title: "Project README: R Pipeline for OFPE Multi-Field Data Processing and Analysis"
+title: "Code Overview"
 format:
   html:
     toc: true
     theme: cosmo
-    mainfont: "Inter"
-editor: visual
 ---
 
-## 1. Project Overview
+# Code Directory
 
-This project provides a full-stack R pipeline for processing and analyzing On-Farm Precision Experiment (OFPE) data. The workflow is divided into two main phases:
+This folder contains all scripts used to process OFPE data, run tree-ensemble models, and construct APSIM-based Bayesian priors and updates.
 
-1.  **Data Processing**: This phase ingests raw, individual OFPE trial data (yield, inputs, boundaries), fetches corresponding external geospatial and weather data (topography, soil, climate), and merges them into unified, analysis-ready datasets.
+## 1. main/ — Active Analysis Scripts (2025)
 
-2.  **Data Analysis**: This phase uses the processed data to model yield-N response functions. It implements a leave-one-field-out cross-validation framework to evaluate the predictive performance of several machine learning models (XGBoost, Random Forest, Causal Forest) and a Gaussian Process model. The final goal is to assess the economic value and uncertainty of using multi-field data to predict field-specific optimal nitrogen rates.
+### **0.set_up.Rmd**  
+Initializes the project environment, loads packages, and sources helper functions.
 
-This R pipeline serves as the canonical workflow for both data preparation and advanced modeling, and is structured to be reproducible and extensible.
+### **1.data_processing.Rmd**  
+Builds analysis-ready OFPE field-year datasets: experimental variables, soils, DEM/topography, and Daymet timing-specific weather.
 
-## 2. Directory Structure
+### **2a.tree_model_analysis.Rmd**  
+Updated tree-ensemble (RF, XGBoost) analysis following the 2022 workflow.
 
-For this pipeline to run correctly, your project should follow this directory structure:
+### **2b.tree_model_results.Rmd**  
+Summaries and diagnostics for tree-model predictions and cross-field performance.
 
-```         
-your_project_root/
-|
-├── Code/
-|   ├── 0_setup.R
-|   ├── 1_main_data_processing.R
-|   ├── 2_functions_processing.R
-|   ├── 3_main_data_analysis.R
-|   └── 4_functions_analysis.R
-|
-├── Data/
-|   ├── Raw/
-|   |   ├── exp_tb_data/      # Folder with individual trial tables (*_tb.rds)
-|   |   ├── exp_bdry_data/    # Folder with individual trial boundaries (*_bdry.rds)
-|   |   └── ... (other raw data files)
-|   |
-|   └── Processed/
-|       └── Analysis_ready/   # Output directory for processed files
-|
-└── your_project.Rproj        # Your RStudio Project file
-```
+### **3a.apsim_priors_il.Rmd**  
+Constructs APSIM-based priors for yield–N curves using region- and soil-level simulations.
 
-## 3. How to Run the Analysis
+### **3b.bayesian_update_il.Rmd**  
+Bayesian updating using OFPE observations to obtain posterior yield–N curves and posterior predictive distributions.
 
-1.  **Open your RStudio Project.** This ensures that the `here()` package works correctly to find your files.
+### **3c.tree_vs_bayesian.Rmd**  
+Comparison between tree-ensemble predictions, APSIM priors, and Bayesian posteriors.
 
-2.  **Run the Setup Script:** Open and execute `Code/0_setup.R` once to ensure all necessary packages are installed.
+### **Anonymize_Naming.Rmd**  
+Reference table and utilities for anonymizing field and producer identifiers.
 
-3.  **Run the Data Processing Pipeline:** Open and execute `Code/1_main_data_processing.R`. This will generate the `dat_binded.rds` and `info_binded.rds` files needed for analysis.
+---
 
-4.  **Run the Data Analysis Pipeline:** Open and execute `Code/3_main_data_analysis.R`. This script will load the processed data, run the cross-validation for all models, and save the results.
+## 2. src/ — Function Library
 
-## 4. Script Descriptions
+### **functions_for_processing.R**  
+Utilities for OFPE data handling: soils, DEM, weather, geometry, and preprocessing.
 
--   **`Code/0_setup.R`**: Checks for and installs all required R packages for both processing and analysis.
+### **functions_tree_model.R**  
+Wrappers for Random Forest and XGBoost model fitting and prediction.
 
--   **`Code/1_main_data_processing.R`**: The master script for the data processing phase.
+### **functions_bayes_priors.R**  
+Functions for building APSIM-based priors (quadratic fitting, soil priors, field-level deviations).
 
--   **`Code/2_functions_processing.R`**: Contains all custom functions for fetching and processing raw and external data.
+### **functions_bayes_model.R**  
+Functions for Bayesian updating, posterior simulation, and posterior predictive inference.
 
--   **`Code/3_main_data_analysis.R`**: The master script for the analysis phase, including the cross-validation loops for all models.
+---
 
--   **`Code/4_functions_analysis.R`**: Contains helper functions for the analysis, such as EONR calculation.
+## 3. Sandbox/ — Archived 2022 Pipeline
 
-## 5. Key Output Files
+### **Main(ver2022)**  
+Original 2022 tree-ensemble workflow: setup, data processing, analysis, and figures.
 
-The pipeline generates several key output files in `Data/Processed/Analysis_ready/`:
+### **Functions(ver2022)**  
+Legacy function versions used in the 2022 scripts.
 
--   **`dat_binded.rds`**: The main block-level dataset with all features.
+---
 
--   **`info_binded.rds`**: Field-level metadata.
-
--   **`xgb_model_list.rds`, `rf_model_list.rds`, etc.**: Saved model objects from the analysis.
-
--   **`result_tab_list.rds`**: A list containing the EONR and profit calculations for each field-year.
+This README provides a concise reference for all code components used in the multi-field OFPE analysis workflow.
