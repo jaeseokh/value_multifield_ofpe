@@ -1,5 +1,9 @@
 # Project Structure Overview
 
+You can see the full "book" version scrtips and code (Rmd) here in
+https://jaeseokh.github.io/value_multifield_ofpe/
+
+
 This repository contains the full workflow for the **Value of Multi-Field OFPE** project.  
 It includes reproducible code for:
 
