@@ -1,6 +1,6 @@
 # Project Structure Overview
 
-You can see the full "book" version scrtips and code (Rmd) here in
+You can see the full "book" version scripts and code (Rmd) here in
 https://jaeseokh.github.io/value_multifield_ofpe/
 
 
