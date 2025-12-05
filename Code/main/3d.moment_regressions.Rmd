@@ -1,0 +1,382 @@
+---
+title: "3d. Moment Regressions for OFPE Yield–N Distributions"
+author: "Jaeseok Hwang"
+format:
+  html:
+    toc: true
+    code-fold: true
+execute:
+  echo: true
+  warning: true
+  message: true
+---
+
+
+```{r setup}
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(here)
+library(readr)
+library(ggplot2)
+library(fixest)     # or lfe / lme4 if you prefer
+library(gt)
+
+knitr::opts_chunk$set(message = TRUE, warning = TRUE)
+
+analysis_dir        <- here("Data","Processed","Analysis_ready")
+apsim_ready_dir     <- here("Data","Processed","APSIP_compare_ready")
+nass_dir            <- here("Data","Processed","NASS")
+book_figure_bayes2_dir <- here("book","Results","Figures","stage2_bayes")
+
+normalize_region <- function(x) sub("^[0-9]+-", "", x)
+region_levels <- c("North","Central","South")
+
+# plotting colors
+region_cols <- c(
+  "North"   = "#1f78b4",
+  "Central" = "#33a02c",
+  "South"   = "#6a3d9a"
+)
+
+```
+
+# Load moment tables and benchmarks
+
+```{r load-moments}
+
+
+# OFPE cluster-level raw / central moments (from 3c)
+
+ofpe_moments_il <- readRDS(
+file.path(apsim_ready_dir, "ofpe_moments_il.rds")
+)
+
+# APSIM prior moments at same cells (from 3c) – loaded but not yet used here
+
+apsim_prior_moments_il <- readRDS(
+file.path(apsim_ready_dir, "apsim_prior_moments_il.rds")
+)
+
+# County yield history / current-year benchmarks
+
+field_benchmarks <- readRDS(
+file.path(nass_dir, "field_benchmarks.rds")
+)
+
+# OFPE–APSIM mapping to get region
+
+ofpe_il_cells <- readRDS(
+file.path(apsim_ready_dir, "ofpe_il_cells.rds")
+)
+
+glimpse(ofpe_moments_il)
+glimpse(field_benchmarks)
+
+
+```
+
+# Build regression dataset
+- keep only N rates within the region-specific band
+- attach contemporaneous county yield for the field’s county–year,
+- define a few transformed variables for variance and skewness regressions.
+
+```{r build-reg-data}
+
+# Build regression table: add region + convenience names
+
+ofpe_reg <- ofpe_moments_il %>%
+left_join(
+ofpe_il_cells %>%
+dplyr::select(ffy_id, region),
+by = "ffy_id"
+) %>%
+mutate(
+region = factor(normalize_region(region), levels = region_levels),
+N_fert = N_target,
+m1 = Y_ofpe_mean,
+mu2 = Y_ofpe_var,
+mu3 = Y_ofpe_m3
+) %>%
+left_join(
+field_benchmarks %>%
+dplyr::select(ffy_id, Y_county_curr),
+by = "ffy_id"
+)
+
+glimpse(ofpe_reg)
+
+
+
+```
+
+# Mean (first central moment) regression
+- Region-specific quadratic in N, with field-year fixed effects for interpretation.
+```{r 1st moment}
+
+# Region-level mean N
+
+region_means <- ofpe_reg %>%
+group_by(region) %>%
+summarise(
+N_mean_region = mean(N_fert, na.rm = TRUE),
+.groups = "drop"
+)
+
+# Add centered N using region_means (avoid join issues)
+
+ofpe_reg <- ofpe_reg %>%
+mutate(
+N_mean_region = region_means$N_mean_region[
+match(region, region_means$region)
+],
+N_c = N_fert - N_mean_region,
+N_c2 = N_c^2
+)
+
+# Mean model with FE (for interpretation)
+
+fe_mean_fe <- feols(
+m1 ~ N_c + N_c2 | ffy_id + region,
+data = ofpe_reg
+)
+
+# Region-specific quadratic without FE (for region-average curves)
+
+fe_mean_disp <- feols(
+m1 ~ region * (N_c + N_c2),
+data = ofpe_reg
+)
+
+summary(fe_mean_fe)
+summary(fe_mean_disp)
+
+
+```
+
+
+# Build N grid and predict region curves
+
+```{r predict region curves}
+
+# Region-specific N ranges from the observed support
+
+N_grid <- ofpe_reg %>%
+group_by(region) %>%
+summarise(
+N_min = min(N_fert, na.rm = TRUE),
+N_max = max(N_fert, na.rm = TRUE),
+.groups = "drop"
+) %>%
+rowwise() %>%
+mutate(N_fert = list(seq(N_min, N_max, length.out = 50))) %>%
+unnest(N_fert) %>%
+ungroup() %>%
+
+# add region means to define N_c, N_c2 in the same way as in the regression
+
+mutate(
+N_mean_region = region_means$N_mean_region[
+match(region, region_means$region)
+],
+N_c = N_fert - N_mean_region,
+N_c2 = N_c^2
+)
+
+# Predicted region-level mean yields
+
+N_grid$pred_m1 <- predict(fe_mean_disp, newdata = N_grid, type = "response")
+
+# Argmax of predicted mean per region (numerical)
+
+opt_N_region <- N_grid %>%
+group_by(region) %>%
+slice_max(order_by = pred_m1, n = 1, with_ties = FALSE) %>%
+ungroup() %>%
+transmute(
+region,
+N_opt = N_fert,
+mu1_opt = pred_m1
+)
+
+opt_N_region
+
+```
+
+
+
+# Plot region-level mean curves (with OFPE points)
+
+
+```{r mean region plot}
+
+p_mean_region <- ggplot() +
+
+# OFPE cluster means in background
+
+geom_point(
+data = ofpe_reg,
+aes(x = N_fert, y = m1, color = region),
+alpha = 0.25,
+size = 1
+) +
+
+# fitted region curves
+
+geom_line(
+data = N_grid,
+aes(x = N_fert, y = pred_m1, color = region),
+linewidth = 1
+) +
+
+# mark optimal N per region
+
+geom_vline(
+data = opt_N_region,
+aes(xintercept = N_opt, color = region),
+linetype = "dashed",
+linewidth = 0.7
+) +
+geom_point(
+data = opt_N_region,
+aes(x = N_opt, y = mu1_opt, color = region),
+size = 2
+) +
+scale_color_manual(values = region_cols, drop = FALSE) +
+labs(
+x = "N rate (lb/ac)",
+y = "Predicted mean yield (bu/ac)",
+color = "Region",
+title = "Region-level mean yield response from OFPE central-moment regression"
+) +
+theme_minimal(base_size = 11) +
+theme(legend.position = "bottom")
+
+p_mean_region
+
+ggsave(
+filename = file.path(
+book_figure_bayes2_dir,
+"ofpe_central_moment_mean_region_curves.pdf"
+),
+plot = p_mean_region,
+width = 7,
+height = 5,
+units = "in"
+)
+
+```
+
+# Variance (second central moment) regression
+
+```{r 2nd moment}
+
+ofpe_reg <- ofpe_reg %>%
+mutate(
+log_mu2 = ifelse(mu2 > 0, log(mu2), NA_real_)
+)
+
+#Drop rows with missing/zero variance
+
+ofpe_var_reg <- ofpe_reg %>%
+filter(is.finite(log_mu2))
+
+# Region-specific quadratic for log-variance
+
+fe_var_disp <- feols(
+log_mu2 ~ region * (N_c + N_c2),
+data = ofpe_var_reg
+)
+
+summary(fe_var_disp)
+
+```
+
+# Predict region-level variance curves
+
+```{r 2nd moment}
+
+
+# Predict log-variance on same N_grid
+
+N_grid_var <- N_grid %>%
+
+# ensure we only keep regions present in ofpe_var_reg
+
+semi_join(ofpe_var_reg %>% distinct(region), by = "region")
+
+N_grid_var$pred_log_mu2 <- predict(fe_var_disp, newdata = N_grid_var, type = "response")
+
+# Convert to variance and standard deviation
+
+N_grid_var <- N_grid_var %>%
+mutate(
+pred_mu2 = exp(pred_log_mu2),
+pred_sd = sqrt(pred_mu2)
+)
+
+# Region-wise N that maximizes predicted variance (optional diagnostic)
+
+opt_N_var_region <- N_grid_var %>%
+group_by(region) %>%
+slice_max(order_by = pred_mu2, n = 1, with_ties = FALSE) %>%
+ungroup() %>%
+transmute(
+region,
+N_opt_var = N_fert,
+mu2_opt = pred_mu2
+)
+
+opt_N_var_region
+
+
+```
+
+# Plot region-level sd(N) curves
+
+
+```{r region sd}
+
+p_sd_region <- ggplot() +
+
+# scatter of empirical within-cluster sd (noisy)
+
+geom_point(
+data = ofpe_var_reg,
+aes(x = N_fert, y = sqrt(mu2), color = region),
+alpha = 0.25,
+size = 1
+) +
+
+#fitted sd curves
+
+geom_line(
+data = N_grid_var,
+aes(x = N_fert, y = pred_sd, color = region),
+linewidth = 1
+) +
+scale_color_manual(values = region_cols, drop = FALSE) +
+labs(
+x = "N rate (lb/ac)",
+y = "Predicted yield sd (bu/ac)",
+color = "Region",
+title = "Region-level yield dispersion from OFPE variance regression"
+) +
+theme_minimal(base_size = 11) +
+theme(legend.position = "bottom")
+
+p_sd_region
+
+ggsave(
+filename = file.path(
+book_figure_bayes2_dir,
+"ofpe_central_moment_sd_region_curves.pdf"
+),
+plot = p_sd_region,
+width = 7,
+height = 5,
+units = "in"
+)
+
+```

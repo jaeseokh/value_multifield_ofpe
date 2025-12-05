@@ -1,0 +1,502 @@
+---
+title: "3b. APSIM vs OFPE: Prior Curves and Moment Diagnostics"
+author: "Jaeseok Hwang"
+format:
+  html:
+    toc: true
+    code-fold: true
+execute:
+  echo: true
+  warning: true
+  message: true
+---
+
+
+```{r setup}
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(sf)
+library(data.table)
+library(here)
+library(readr)
+library(ggplot2)
+library(gt)
+library(patchwork)
+library(ggnewscale)
+
+
+knitr::opts_chunk$set(message = TRUE, warning = TRUE)
+
+apsim_dir       <- here("Data","APSIM")
+analysis_dir    <- here("Data","Processed","Analysis_ready")
+nass_dir <- here("Data","Processed","NASS")
+apsim_ready_dir <- here("Data","Processed","APSIP_compare_ready")
+book_result_dir <- here("book","Results")
+book_figure_bayes2_dir <- here("book","Results","Figures","stage2_bayes")
+
+
+# helper: safe factor ordering
+# normalize region labels from "3-North" etc. to "North", "Central", "South"
+normalize_region <- function(x) sub("^[0-9]+-", "", x)
+
+
+# consistent region ordering
+region_levels <- c("North","Central","South")
+
+# --- County benchmark yields per field-year (wide, with history + current) ---
+field_benchmarks <- readRDS(file.path(nass_dir, "field_benchmarks.rds"))
+
+# --- APSIM / OFPE helper functions (including make_year_plot) ---
+source(here("Code","src","functions_apsim_compare.R"))
+
+```
+
+
+
+
+```{r load-prep data}
+
+
+# APSIM–OFPE mapping (which field-year sits in which APSIM cell/region)
+
+ofpe_il_cells <- readRDS(file.path(apsim_ready_dir, "ofpe_il_cells.rds"))
+
+ofpe_il_cells <- ofpe_il_cells %>%
+  mutate(region = normalize_region(region))
+
+# OFPE empirical curves: one row per (ffy_id × N_fert)
+# columns: ffy_id, N_fert (lb/ac), Y_ofpe (bu/ac), n_obs
+
+ofpe_curves_il <- readRDS(file.path(apsim_ready_dir, "ofpe_curves_il.rds"))
+
+# APSIM 30-year prior curves (already restricted to IL + cells with OFPE)
+# columns: region, id_10, N_lbs_ac (lb/ac), Y_apsim_mean (bu/ac), Y_apsim_var, Y_apsim_sd
+
+apsim_cell_curves_il <- readRDS(file.path(apsim_ready_dir, "apsim_cell_curves_il.rds"))
+
+apsim_cell_curves_il <- apsim_cell_curves_il %>%
+  mutate(region = normalize_region(region))
+
+# Field meta for facet labels (farm / field / year)
+
+field_loc2 <- readRDS(file.path(analysis_dir, "field_loc2.rds"))
+
+# Illinois field-year IDs
+
+il_ffy_ids <- field_loc2 %>%
+filter(stusps == "IL") %>%
+pull(ffy_id) %>%
+unique()
+
+length(il_ffy_ids)
+
+```
+
+# Build APSIM vs OFPE curve panels (field-by-field)
+
+- put APSIM prior curves and OFPE empirical curves into a common long format,
+- truncate both to the region-specific N band,
+- then create faceted comparisons (one panel per field-year).
+
+```{r ofpe apsim match}
+
+# OFPE curve data (one row per ffy_id × N_fert)
+
+region_bands <- tibble::tibble(
+  region = factor(region_levels, levels = region_levels),
+  N_min  = c(130, 140, 150),  # North, Central, South
+  N_max  = c(200, 210, 220)   # (you can tweak these)
+)
+
+
+region_cols <- c(
+  "North"   = "#1f78b4",  # blue
+  "Central" = "#33a02c",  # green
+  "South"   = "#6a3d9a"   # purple
+)
+
+
+ofpe_plot_df <- ofpe_curves_il %>%
+  left_join(
+    ofpe_il_cells %>% dplyr::select(ffy_id, region, id_10),
+    by = "ffy_id"
+  ) %>%
+  mutate(region = normalize_region(region)) %>%
+  left_join(
+    field_loc2 %>% dplyr::select(ffy_id, farm, field, year),
+    by = "ffy_id"
+  ) %>%
+  left_join(region_bands, by = "region") %>%
+  filter(
+    !is.na(N_min),
+    N_fert >= N_min,
+    N_fert <= N_max
+  ) %>%
+  mutate(
+    region = factor(region, levels = region_levels),
+    N      = N_fert,
+    Y      = Y_ofpe,
+    type   = "OFPE"
+  ) %>%
+  dplyr::select(ffy_id, farm, field, year, region, id_10, N, Y, type)
+
+# APSIM mean + sd curves (same N band)
+apsim_plot_df <- ofpe_il_cells %>%
+  dplyr::select(ffy_id, region, id_10) %>%
+  distinct() %>%
+  mutate(region = normalize_region(region)) %>%
+  inner_join(
+    apsim_cell_curves_il,
+    by = c("region","id_10")
+  ) %>%
+  left_join(
+    field_loc2 %>% dplyr::select(ffy_id, farm, field, year),
+    by = "ffy_id"
+  ) %>%
+  left_join(region_bands, by = "region") %>%
+  filter(
+    !is.na(N_min),
+    N_lbs_ac >= N_min,
+    N_lbs_ac <= N_max
+  ) %>%
+  mutate(
+    region = factor(region, levels = region_levels),
+    N      = N_lbs_ac,
+    Y      = Y_apsim_mean,
+    Y_sd   = Y_apsim_sd,
+    type   = "APSIM"
+  ) %>%
+  dplyr::select(ffy_id, farm, field, year, region, id_10, N, Y, Y_sd, type)
+
+# --- Combine and order for plotting ---
+
+combined_panel_df <- bind_rows(
+apsim_plot_df %>% mutate(Y_sd = Y_sd), # APSIM rows
+ofpe_plot_df %>% mutate(Y_sd = NA_real_) # OFPE rows (no sd)
+) %>%
+mutate(
+farm = as.integer(farm),
+field = as.integer(field),
+year = as.integer(year)
+) %>%
+arrange(year, farm, field) %>%
+mutate(
+farm_field_label = paste0("Farm ", farm, ", Field ", field),
+region = factor(region, levels = region_levels),
+type = factor(type, levels = c("APSIM","OFPE"))
+)
+
+unique_years <- sort(unique(combined_panel_df$year))
+unique_years
+
+# county yield line per field-year (only IL fields present in combined_panel_df)
+county_lines_df <- field_benchmarks %>%
+  dplyr::filter(ffy_id %in% unique(combined_panel_df$ffy_id)) %>%
+  dplyr::mutate(
+    farm_field_label = paste0("Farm ", farm, ", Field ", field)
+  ) %>%
+  dplyr::select(
+    ffy_id,
+    year,
+    farm_field_label,
+    Y_county_curr
+  )
+
+```
+
+
+# Faceted curves: APSIM prior vs OFPE points
+
+```{r visual apsim vs ofpe }
+
+# use ~80% band around APSIM mean (if APSIM sd is roughly across years)
+
+z_band <- 1.28   # ≈80% if distribution is ~normal
+
+plots_by_year <- purrr::map(
+  unique_years,
+  ~ make_year_plot(
+      combined_panel_df = combined_panel_df,
+      year_sel          = .x,
+      region_cols       = region_cols,
+      z_band            = z_band,
+      county_lines_df   = county_lines_df   # <-- NEW
+    )
+)
+
+names(plots_by_year) <- unique_years
+
+# stitched panel for selected years
+years_show <- c(2018, 2020, 2022)
+
+p_all_years <- patchwork::wrap_plots(
+  plots_by_year[as.character(years_show)],
+  ncol = 1
+)
+
+p_all_years
+
+# save each year separately
+for (yy in unique_years) {
+  ggsave(
+    filename = file.path(
+      book_figure_bayes2_dir,
+      paste0("apsim_ofpe_curves_", yy, ".pdf")
+    ),
+    plot   = plots_by_year[[as.character(yy)]],
+    width  = 10,
+    height = 6,
+    units  = "in"
+  )
+}
+
+
+# Save each year  data separately
+for (yy in unique_years) {
+  ggsave(
+    filename = file.path(
+      book_figure_bayes2_dir,
+      paste0("apsim_ofpe_curves_", yy, ".pdf")
+    ),
+    plot   = plots_by_year[[as.character(yy)]],
+    width  = 10,
+    height = 6,
+    units  = "in"
+  )
+}
+
+
+```
+
+# N-level alignment and discrepancies
+
+```{r n align and discrepencies }
+
+# helper: align one field-year
+
+align_field <- function(ffy_id_sel, ofpe_df, apsim_df, max_tol_N = 30) {
+df_o <- ofpe_df %>% filter(ffy_id == ffy_id_sel)
+df_a <- apsim_df %>% filter(ffy_id == ffy_id_sel)
+
+if (nrow(df_o) == 0 || nrow(df_a) == 0) {
+return(tibble())
+}
+
+purrr::map_dfr(seq_len(nrow(df_o)), function(i) {
+N_obs <- df_o$N[i]
+Y_obs <- df_o$Y[i]
+
+diffs <- abs(df_a$N - N_obs)
+j     <- which.min(diffs)
+
+if (length(j) == 0 || diffs[j] > max_tol_N) {
+  return(tibble())
+}
+
+tibble(
+  ffy_id  = ffy_id_sel,
+  farm    = df_o$farm[i],
+  field   = df_o$field[i],
+  year    = df_o$year[i],
+  region  = df_o$region[i],
+  id_10   = df_o$id_10[i],
+  N_ofpe  = N_obs,
+  Y_ofpe  = Y_obs,
+  N_apsim = df_a$N[j],
+  Y_apsim = df_a$Y[j]
+)
+
+})
+}
+
+# build full discrepancy table across all IL fields
+
+discrepancy_df <- purrr::map_dfr(
+  il_ffy_ids,
+  ~ align_field(.x, ofpe_plot_df, apsim_plot_df, max_tol_N = 30)
+) %>%
+  # basic APSIM–OFPE gaps at matched N
+  mutate(
+    dN      = N_apsim - N_ofpe,
+    dY      = Y_ofpe - Y_apsim,
+    ratio_Y = Y_ofpe / Y_apsim
+  ) %>%
+  # bring in county benchmarks (current year + history)
+  left_join(
+    field_benchmarks %>%
+      dplyr::select(
+        ffy_id,
+        fips,
+        county_name,
+        Y_county_curr,
+        dplyr::starts_with("Y_county_")
+      ),
+    by = "ffy_id"
+  ) %>%
+  # differences vs county current-year yield
+  mutate(
+    dY_ofpe_vs_county  = Y_ofpe  - Y_county_curr,
+    dY_apsim_vs_county = Y_apsim - Y_county_curr
+  )
+
+nrow(discrepancy_df)
+
+saveRDS(
+  discrepancy_df,
+  file.path(apsim_ready_dir, "apsim_ofpe_discrepancy_il.rds")
+)
+
+
+```
+
+# Region-level discrepancy distributions
+
+```{r county-benchmark-boxplot }
+
+# Long format: deviations from county yield, by source (APSIM vs OFPE)
+dev_long <- discrepancy_df %>%
+  filter(!is.na(Y_county_curr)) %>%
+  dplyr::select(region, dY_ofpe_vs_county, dY_apsim_vs_county) %>%
+  tidyr::pivot_longer(
+    cols = starts_with("dY_"),
+    names_to  = "source",
+    values_to = "dY"
+  ) %>%
+  mutate(
+    source = dplyr::recode(
+      source,
+      dY_ofpe_vs_county  = "OFPE − county",
+      dY_apsim_vs_county = "APSIM − county"
+    ),
+    source = factor(source, levels = c("APSIM − county", "OFPE − county")),
+    region = droplevels(region)
+  )
+
+p_box_county <- ggplot(dev_long, aes(x = source, y = dY, fill = source)) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  geom_boxplot(outlier.alpha = 0.2, width = 0.6) +
+  facet_wrap(~ region, nrow = 1) +
+  scale_fill_manual(
+    values = c(
+      "APSIM − county" = "red",
+      "OFPE − county"  = "grey40"
+    )
+  ) +
+  labs(
+    x = NULL,
+    y = "Yield − county yield (bu/ac)",
+    fill = NULL,
+    title = "Deviations from county yield: APSIM prior vs OFPE field data"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    legend.position = "bottom"
+  )
+
+p_box_county
+
+ggsave(
+  filename = file.path(book_figure_bayes2_dir ,"apsim_ofpe_vs_county_boxplot.pdf"),
+  plot   = p_box_county,
+  width  = 8,
+  height = 4,
+  units  = "in"
+)
+```
+
+
+
+# Scatter diagnostics: APSIM vs OFPE matched yields
+
+```{r matched yield }
+
+
+p_scatter_yields <- ggplot(discrepancy_df, aes(x = Y_apsim, y = Y_ofpe, color = region)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", linewidth = 0.5) +
+  geom_point(alpha = 0.5, size = 1.2) +
+  scale_color_brewer(palette = "Set2", drop = FALSE) +
+  labs(
+    x = "APSIM prior yield (bu/ac)",
+    y = "OFPE observed yield (bu/ac)",
+    color = "Region",
+    title = "Matched APSIM vs OFPE yields (nearest N per field-year)"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(legend.position = "bottom")
+
+p_scatter_yields
+
+ggsave(
+  filename = file.path(book_figure_bayes2_dir, "apsim_ofpe_scatter_yields.pdf"),
+  plot = p_scatter_yields,
+  width = 6,
+  height = 5,
+  units = "in"
+)
+
+
+```
+
+# 3-way field-level comparison (APSIM / county / OFPE)
+
+```{r field-level-three-way }
+
+field_level <- discrepancy_df %>%
+  group_by(ffy_id, farm, field, year, region, county_name, Y_county_curr) %>%
+  summarise(
+    Y_ofpe_mean  = mean(Y_ofpe,  na.rm = TRUE),
+    Y_apsim_mean = mean(Y_apsim, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    Y_county = Y_county_curr
+  ) %>%
+  tidyr::pivot_longer(
+    cols      = c(Y_apsim_mean, Y_county, Y_ofpe_mean),
+    names_to  = "source",
+    values_to = "Y"
+  ) %>%
+  mutate(
+    source = factor(
+      source,
+      levels = c("Y_apsim_mean", "Y_county", "Y_ofpe_mean"),
+      labels = c("APSIM (matched N)", "County average", "OFPE (matched N)")
+    ),
+    facet_label = paste0("Farm ", farm, ", Field ", field, " (", year, ")")
+  )
+
+p_field <- ggplot(field_level, aes(x = source, y = Y, color = source)) +
+  geom_point(position = position_dodge(width = 0.4), alpha = 0.9) +
+  facet_wrap(~ facet_label, scales = "free_y") +
+  scale_color_manual(
+    values = c(
+      "APSIM (matched N)" = "red",
+      "County average"    = "grey40",
+      "OFPE (matched N)"  = "black"
+    )
+  ) +
+  labs(
+    x = NULL,
+    y = "Yield (bu/ac)",
+    color = NULL,
+    title = "Field-level comparison at matched N: APSIM vs county yield vs OFPE"
+  ) +
+  theme_minimal(base_size = 9) +
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(size = 7)
+  )
+
+p_field
+
+ggsave(
+  filename = file.path(book_figure_bayes2_dir, "apsim_ofpe_county_fieldlevel.pdf"),
+  plot   = p_field,
+  width  = 10,
+  height = 6,
+  units  = "in"
+)
+
+```

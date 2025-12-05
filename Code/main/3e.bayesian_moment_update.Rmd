@@ -1,0 +1,484 @@
+---
+title: "3e. Bayesian Moment Update"
+author: "Jaeseok Hwang"
+format:
+  html:
+    toc: true
+    code-fold: true
+execute:
+  echo: true
+  warning: true
+  message: true
+---
+
+
+```{r setup}
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(here)
+library(ggplot2)
+
+analysis_dir    <- here("Data","Processed","Analysis_ready")
+apsim_ready_dir <- here("Data","Processed","APSIP_compare_ready")
+
+normalize_region <- function(x) sub("^[0-9]+-", "", x)
+region_levels <- c("North","Central","South")
+
+# OFPE cluster-level moments (from 3c)
+ofpe_moments_il <- readRDS(
+  file.path(apsim_ready_dir, "ofpe_moments_il.rds")
+)
+
+# APSIM prior moments at same cells (from 3c)
+apsim_prior_moments_il <- readRDS(
+  file.path(apsim_ready_dir, "apsim_prior_moments_il.rds")
+)
+
+apsim_prior_moments_il <- apsim_prior_moments_il %>%
+  mutate(
+    region = normalize_region(region),
+    region = factor(region, levels = region_levels)
+  )
+
+# mapping field-year to APSIM cell/region
+ofpe_il_cells <- readRDS(
+  file.path(apsim_ready_dir, "ofpe_il_cells.rds")
+) %>%
+  mutate(region = normalize_region(region))
+
+# (if you want county benchmarks in the same table)
+field_benchmarks <- readRDS(
+  here("Data","Processed","NASS","field_benchmarks.rds")
+)
+
+
+```
+
+# Align APSIM prior moments to OFPE clusters (by cell + nearest N)
+- APSIM prior moments at the closest N in that cell
+- OFPE sample moments
+
+```{r alin apsim prior}
+
+# helper: for a given ffy_id and N, pick nearest APSIM prior row
+align_prior_N <- function(ffy_id_sel, N_sel, apsim_df, max_tol = 30) {
+
+  df_a <- apsim_df %>% filter(ffy_id == ffy_id_sel)
+
+  if (nrow(df_a) == 0)
+    return(NULL)
+
+  diffs <- abs(df_a$N_fert_prior - N_sel)
+  j <- which.min(diffs)
+
+  if (length(j) == 0 || diffs[j] > max_tol)
+    return(NULL)
+
+  # return ONLY the APSIM moment columns
+  tibble(
+    N_fert_prior = df_a$N_fert_prior[j],
+    m1_prior     = df_a$m1_prior[j],
+    mu2_prior    = df_a$mu2_prior[j],
+    mu3_prior    = df_a$mu3_prior[j],
+    sd_prior     = df_a$sd_prior[j],
+    skew_prior   = df_a$skew_prior[j]
+  )
+}
+
+# main alignment: one row per OFPE cluster, with attached APSIM prior row
+bayes_moments_il <- ofpe_moments_il %>%
+  mutate(
+    N_fert   = N_target,
+    mu1_ofpe = Y_ofpe_mean,
+    mu2_ofpe = Y_ofpe_var,
+    mu3_ofpe = Y_ofpe_m3
+  ) %>%
+  # bring in region, id_10, farm, field, year
+  left_join(
+    apsim_prior_moments_il %>%
+      distinct(ffy_id, region, id_10, farm, field, year),
+    by = "ffy_id"
+  ) %>%
+  mutate(
+    region = normalize_region(region),
+    region = factor(region, levels = region_levels)
+  ) %>%
+  rowwise() %>%
+mutate(
+  prior_row = list(
+    align_prior_N(
+      ffy_id_sel = ffy_id,
+      N_sel      = N_fert,
+      apsim_df   = apsim_prior_moments_il,
+      max_tol    = 30
+    )
+  )
+) %>%
+  ungroup() %>%
+  filter(!map_lgl(prior_row, is.null)) %>%
+  unnest(prior_row) %>%
+  mutate(
+    sd_ofpe  = sqrt(pmax(mu2_ofpe,  0)),
+    sd_prior = sqrt(pmax(mu2_prior, 0))
+  )
+
+glimpse(bayes_moments_il)
+
+```
+
+# Plot prior / OFPE / posterior mean curve for one field-year
+
+```{r plot prior and posterior}
+
+
+plot_moment_curves <- function(ffy_id_sel, bayes_tbl = bayes_moments_il) {
+
+  df <- bayes_tbl %>%
+    dplyr::filter(ffy_id == ffy_id_sel) %>%
+    dplyr::arrange(N_fert)
+
+  if (nrow(df) == 0) {
+    stop("No rows found for ffy_id = ", ffy_id_sel)
+  }
+
+  mean_long <- df %>%
+    dplyr::transmute(
+      N_fert,
+      `APSIM prior`    = m1_prior,
+      `OFPE mean`      = mu1_ofpe,
+      `Posterior mean` = mu1_post
+    ) %>%
+    tidyr::pivot_longer(
+      cols      = -N_fert,
+      names_to  = "source",
+      values_to = "mu1"
+    )
+
+  ggplot(mean_long, aes(x = N_fert, y = mu1, color = source)) +
+    geom_line(linewidth = 1) +
+    # show the raw OFPE cluster means as points on top
+    geom_point(
+      data = df,
+      aes(x = N_fert, y = mu1_ofpe),
+      inherit.aes = FALSE,
+      color       = "black",
+      size        = 1.4,
+      alpha       = 0.7
+    ) +
+    scale_color_manual(
+      values = c(
+        "APSIM prior"    = "red",
+        "OFPE mean"      = "black",
+        "Posterior mean" = "#1f78b4"
+      )
+    ) +
+    labs(
+      x     = "N rate (lb/ac)",
+      y     = "Mean yield (bu/ac)",
+      color = NULL,
+      title = paste0("Field ", ffy_id_sel,
+                     ": APSIM prior vs OFPE vs posterior mean")
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(
+      legend.position = "bottom"
+    )
+}
+
+
+```
+
+```{r opt-N-from-moments, message=FALSE, warning=FALSE}
+
+
+bayes_moments_il <- bayes_moments_il %>%
+  mutate(
+    # prior variance and precision
+    var_prior  = mu2_prior,
+    tau_prior  = 1 / pmax(var_prior, 1e-8),
+
+    # likelihood (OFPE cluster mean) variance and precision
+    var_lik = mu2_ofpe / pmax(n_cluster, 1),   # variance of sample mean
+    tau_lik = 1 / pmax(var_lik, 1e-8),
+
+    # posterior mean
+    mu1_post = (m1_prior * tau_prior + mu1_ofpe * tau_lik) /
+               (tau_prior + tau_lik),
+
+    # posterior variance
+    var_post = 1 / (tau_prior + tau_lik),
+    mu2_post = var_post,
+    sd_post  = sqrt(var_post)
+  )
+
+
+  saveRDS( bayes_moments_il,
+  file.path(apsim_ready_dir, "bayes_moments_il.rds")
+     )
+
+
+
+# Check that these columns exist; if names differ, adjust here once.
+
+required_cols <- c(
+  "ffy_id", "farm", "field", "year", "region",
+  "N_fert",
+  "m1_prior", "mu2_prior",
+  "mu1_ofpe", "mu2_ofpe",
+  "mu1_post", "mu2_post"
+)
+
+missing_cols <- setdiff(required_cols, names(bayes_moments_il))
+if (length(missing_cols) > 0) {
+  stop("bayes_moments_il is missing columns: ",
+       paste(missing_cols, collapse = ", "))
+}
+
+bayes_moments_il <- bayes_moments_il %>%
+  dplyr::mutate(
+    sd_prior = sqrt(pmax(mu2_prior, 0)),
+    sd_ofpe  = sqrt(pmax(mu2_ofpe,  0)),
+    sd_post  = sqrt(pmax(mu2_post,  0))
+  )
+
+# ------------------------------------------------------------
+# 2. Helper: pick argmax N *within a field-year*
+# ------------------------------------------------------------
+
+# risk-neutral: maximize mean
+choose_opt_N_mean <- function(df,
+                              mean_col = c("m1_prior", "mu1_ofpe", "mu1_post"),
+                              N_col    = "N_fert") {
+  mean_col <- rlang::sym(mean_col)
+  N_col    <- rlang::sym(N_col)
+
+  df %>%
+    dplyr::filter(is.finite(!!mean_col)) %>%
+    dplyr::slice_max(order_by = !!mean_col, n = 1, with_ties = FALSE) %>%
+    dplyr::select(!!N_col, !!mean_col)
+}
+
+# (optional extension later: risk-averse objective using sd_post)
+
+# ------------------------------------------------------------
+# 3. Compute optimal N for each field-year
+# ------------------------------------------------------------
+
+opt_N_il <- bayes_moments_il %>%
+  dplyr::group_by(ffy_id, farm, field, year, region) %>%
+  dplyr::group_modify(~{
+    df <- .x
+
+    # Prior-based optimal N
+    opt_prior <- choose_opt_N_mean(df, mean_col = "m1_prior")
+    # Data-only (OFPE) optimal N
+    opt_ofpe  <- choose_opt_N_mean(df, mean_col = "mu1_ofpe")
+    # Posterior optimal N
+    opt_post  <- choose_opt_N_mean(df, mean_col = "mu1_post")
+
+    tibble::tibble(
+      N_opt_prior = opt_prior$N_fert,
+      mu1_prior_opt = opt_prior$m1_prior,
+
+      N_opt_ofpe  = opt_ofpe$N_fert,
+      mu1_ofpe_opt = opt_ofpe$mu1_ofpe,
+
+      N_opt_post  = opt_post$N_fert,
+      mu1_post_opt = opt_post$mu1_post
+    )
+  }) %>%
+  dplyr::ungroup()
+
+opt_N_il
+
+# ------------------------------------------------------------
+# 4. Save for later economic evaluation
+# ------------------------------------------------------------
+
+saveRDS(
+  opt_N_il,
+  file = file.path(apsim_ready_dir, "opt_N_prior_ofpe_post_il.rds")
+)
+
+
+
+```
+
+
+
+# Simple shrinkage / Bayesian-style update for 1st and 2nd moments
+- treat APSIM as a “pseudo-sample”
+- OFPE cluster as a sample of size
+
+```{r shrinkage}
+
+
+update_moments_simple <- function(m1_prior, mu2_prior,
+                                  mu1_ofpe,  mu2_ofpe,
+                                  n_cluster,
+                                  n0 = 10) {
+  w_prior <- n0
+  w_data  <- n_cluster %||% 0
+  w_total <- w_prior + w_data
+  w_total[w_total == 0] <- NA_real_
+
+  mu1_post <- (w_prior * m1_prior + w_data * mu1_ofpe) / w_total
+  mu2_post <- (w_prior * mu2_prior + w_data * mu2_ofpe) / w_total
+
+  tibble(
+    mu1_post = mu1_post,
+    mu2_post = mu2_post
+  )
+}
+
+n0_prior <- 10  # can experiment with 5, 10, 20...
+
+bayes_moments_il <- bayes_moments_il %>%
+  rowwise() %>%
+  mutate(
+    post = list(
+      update_moments_simple(
+        m1_prior = m1_prior,
+        mu2_prior = mu2_prior,
+        mu1_ofpe  = mu1_ofpe,
+        mu2_ofpe  = mu2_ofpe,
+        n_cluster = n_cluster,
+        n0        = n0_prior
+      )
+    )
+  ) %>%
+  ungroup() %>%
+  unnest(post) %>%
+  mutate(
+    sd_post = sqrt(pmax(mu2_post, 0))
+  )
+
+glimpse(bayes_moments_il)
+
+```
+
+```{r region model}
+
+# Mean model with field-year & region FE (for interpretation)
+
+fe_mean_fe <- feols(
+m1 ~ N_c + N_c2 | ffy_id + region,
+data = ofpe_reg
+)
+
+# Region-specific mean response (no FE, for plotting)
+
+fe_mean_disp <- feols(
+m1 ~ region * (N_c + N_c2),
+data = ofpe_reg
+)
+
+summary(fe_mean_disp)
+
+# N grid by region for plotting
+
+N_grid <- ofpe_reg %>%
+group_by(region) %>%
+summarise(
+N_min = min(N_fert, na.rm = TRUE),
+N_max = max(N_fert, na.rm = TRUE),
+.groups = "drop"
+) %>%
+rowwise() %>%
+mutate(N_fert = list(seq(N_min, N_max, length.out = 50))) %>%
+tidyr::unnest(N_fert) %>%
+ungroup() %>%
+mutate(
+N_mean_region = region_means$N_mean_region[
+match(region, region_means$region)
+],
+N_c = N_fert - N_mean_region,
+N_c2 = N_c^2
+)
+
+# Predicted mean yield by region, as a function of N
+
+N_grid$pred_m1 <- predict(fe_mean_disp, newdata = N_grid, type = "response")
+
+# Region-wise argmax of predicted mean (approximate, from grid)
+
+opt_N_region <- N_grid %>%
+group_by(region) %>%
+slice_max(order_by = pred_m1, n = 1, with_ties = FALSE) %>%
+ungroup() %>%
+transmute(
+region,
+N_opt = N_fert,
+mu1_opt = pred_m1
+)
+
+opt_N_region
+
+```
+
+
+
+# Plot region-level mean curves (with OFPE points underneath)
+
+```{r mean region plot}
+
+# OFPE central-moment means in the background
+
+p_mean_region <- ggplot() +
+geom_point(
+data = ofpe_reg,
+aes(x = N_fert, y = m1, color = region),
+alpha = 0.25,
+size = 1
+) +
+
+# fitted regional curves
+
+geom_line(
+data = N_grid,
+aes(x = N_fert, y = pred_m1, color = region),
+linewidth = 1
+) +
+
+# mark optimal N per region
+
+geom_vline(
+data = opt_N_region,
+aes(xintercept = N_opt, color = region),
+linetype = "dashed",
+linewidth = 0.7
+) +
+geom_point(
+data = opt_N_region,
+aes(x = N_opt, y = mu1_opt, color = region),
+size = 2
+) +
+scale_color_manual(values = region_cols, drop = FALSE) +
+labs(
+x = "N rate (lb/ac)",
+y = "Predicted mean yield (bu/ac)",
+color = "Region",
+title = "Region-level mean yield response from OFPE central-moment regression"
+) +
+theme_minimal(base_size = 11) +
+theme(
+legend.position = "bottom"
+)
+
+p_mean_region
+
+ggsave(
+filename = file.path(
+book_figure_bayes2_dir,
+"ofpe_central_moment_mean_region_curves.pdf"
+),
+plot = p_mean_region,
+width = 7,
+height = 5,
+units = "in"
+)
+
+
+```

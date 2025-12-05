@@ -288,7 +288,7 @@ eonr_all <- eonr_all %>%
 relocate(farm_field, ffy_id, model, scenario_id, corn_price, n_price, EONR, yield_at_EONR, profit_at_EONR) %>%
 arrange(farm_field, ffy_id, model, scenario_id)
 
-readr::write_csv(eonr_all, here::here("Figures","EONR_3trial_all.csv"))
+readr::write_csv(eonr_all, here::here("book","Results","Tables","EONR_3trial_all.csv"))
 
 eonr_summary <- eonr_all %>%
 group_by(farm_field, ffy_id, model) %>%

@@ -1,0 +1,387 @@
+---
+title: "OFPE–APSIM Data Processing: Priors and Overview Plot"
+author: "Jaeseok Hwang"
+format:
+  html:
+    toc: true
+    code-fold: true
+execute:
+  echo: true
+  warning: true
+  message: true
+---
+
+```{r setup}
+
+library(here)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(data.table)
+library(sf)
+library(stringr)
+library(readr)
+library(ggplot2)
+library(patchwork)
+
+knitr::opts_chunk$set(message = TRUE, warning = TRUE)
+
+source(here("Code","src","functions_for_processing.R"))
+source(here("Code","src","functions_apsim_compare.R"))
+
+apsim_dir        <- here("Data","Apsim")
+analysis_dir <- here("Data","Processed","Analysis_ready")
+apsim_ready_dir <- here("Data","Processed","APSIP_compare_ready")
+book_result_dir <- here("book","Results")
+book_figure_bayes2_dir <- here("book","Results","Figures","stage2_bayes")
+
+dir.create(apsim_ready_dir, recursive = TRUE, showWarnings = FALSE)
+
+
+```
+
+
+
+###  load base spatial objects (APSIM and OFPE data)
+
+```{r load base data}
+
+# APSIM grid and soils (Mandrini)
+cells_sf <- readRDS(file.path(apsim_dir, "cells_sf.rds"))      # id_10, region, geometry
+soils_sf <- readRDS(file.path(apsim_dir, "soils_sf.rds"))      # mukey, id_field, id_10, geometry
+
+# Illinois OFPE field locations (centroids or field points)
+field_loc2 <- readRDS(file.path(analysis_dir, "field_loc2.rds"))
+
+il_ffy_ids <- field_loc2 %>%
+  filter(stusps == "IL") %>%
+  pull(ffy_id) %>%
+  unique()
+
+# OFPE ↔ APSIM cell linkage (if you already built it before & saved, you can keep this)
+ofpe_il_cells <- readRDS(file.path(apsim_ready_dir, "ofpe_il_cells.rds"))
+
+
+```
+
+# Build OFPE curve for each field
+
+```{r ofpe curve}
+
+ofpe_curves_il <- purrr::map(
+  il_ffy_ids,
+  ~ build_ofpe_curve_from_merged(
+      ffy_id       = .x,
+      analysis_dir = analysis_dir,
+      n_col        = "n_rate",   # OFPE N in lb/ac
+      y_col        = "yield"     # OFPE yield in bu/ac
+    )
+) %>%
+  purrr::compact() %>%
+  bind_rows()
+
+saveRDS(ofpe_curves_il,
+        file.path(apsim_ready_dir, "ofpe_curves_il.rds"))
+
+
+```
+
+
+# Build APSIM priors (from Mandrini et al. 2023 data)
+
+```{r build-apsim-priors}
+
+yield_curve_field_dt <- readRDS(file.path(apsim_dir, "yield_curve_field_dt.rds"))
+
+apsim_cell_curves <- yield_curve_field_dt %>%
+  mutate(
+    N_lbs_ac = N_fert * 0.8921,    # kg/ha → lb/ac
+    Y_bu_ac  = Y_corn / 62.77      # kg/ha → bu/ac (corn)
+  ) %>%
+  group_by(region, id_10, N_lbs_ac) %>%
+  summarise(
+    n_years      = n(),
+    Y_apsim_mean = mean(Y_bu_ac, na.rm = TRUE),
+    Y_apsim_var  = var(Y_bu_ac, na.rm = TRUE),
+    .groups      = "drop"
+  ) %>%
+  mutate(
+    Y_apsim_sd = sqrt(Y_apsim_var)
+  )
+
+# keep only cells used by OFPE
+apsim_cell_curves_il <- apsim_cell_curves %>%
+  inner_join(ofpe_il_cells %>% distinct(region, id_10),
+             by = c("region","id_10"))
+
+saveRDS(apsim_cell_curves_il,
+        file.path(apsim_ready_dir, "apsim_cell_curves_il.rds"))
+
+```
+
+# build and save map ingredients (for overview figure; p_combined only)
+```{r map-ingredients}
+# Cells with OFPE
+cells_with_ofpe <- ofpe_il_cells %>% distinct(region, id_10)
+
+# APSIM soils in those cells
+soils_il_cells_sf <- soils_sf %>%
+  st_transform(4326) %>%
+  inner_join(cells_with_ofpe, by = "id_10")
+
+# APSIM soil centroids
+soils_il_centroids_sf <- soils_il_cells_sf %>%
+  st_centroid()
+
+# APSIM grid transformed
+cells_sf2 <- cells_sf %>%
+  st_transform(4326) %>%
+  mutate(has_ofpe = id_10 %in% cells_with_ofpe$id_10)
+
+# OFPE field centroids (proper sf)
+field_centroids_sf <- readRDS(file.path(analysis_dir, "field_centroids_sf.rds"))
+
+field_il_centroids_sf <- field_centroids_sf %>%
+  filter(stusps == "IL") %>%
+  st_transform(4326)
+
+# save any you want to reuse later
+saveRDS(field_il_centroids_sf,
+        file.path(apsim_ready_dir, "field_il_centroids_sf.rds"))
+saveRDS(soils_il_cells_sf,
+        file.path(apsim_ready_dir, "soils_il_cells_sf.rds"))
+saveRDS(cells_sf2,
+        file.path(apsim_ready_dir, "cells_sf2.rds"))
+```
+
+# Overview panel plot
+
+
+```{r map apsim left}
+
+# Left panel – APSIM grid, OFPE centroids, APSIM soil centroids
+
+soils_sf <-readRDS(here::here("Data","APSIM","soils_sf.rds"))
+cells_sf <-readRDS(here::here("Data","APSIM","cells_sf.rds"))
+
+
+# cells that actually contain at least one OFPE field
+cells_with_ofpe <- ofpe_il_cells %>%
+  dplyr::distinct(region, id_10)
+
+# APSIM soils restricted to those cells
+soils_il_cells_sf <- soils_sf %>%
+  sf::st_transform(4326) %>%
+  dplyr::inner_join(cells_with_ofpe, by = "id_10")
+
+# centroids of APSIM soil fields in those cells
+soils_il_centroids_sf <- soils_il_cells_sf %>%
+  sf::st_centroid()
+
+# mark cells that have OFPE
+cells_sf2 <- cells_sf %>%
+  sf::st_transform(4326) %>%
+  dplyr::mutate(has_ofpe = id_10 %in% cells_with_ofpe$id_10)
+
+# LEFT panel
+p_left <- ggplot() +
+  # APSIM grid by region
+  geom_sf(
+    data  = cells_sf2,
+    aes(fill = region),
+    color = "grey40",
+    size  = 0.1
+  ) +
+  # highlight cells that have OFPE
+  geom_sf(
+    data  = subset(cells_sf2, has_ofpe),
+    fill  = NA,
+    color = "black",
+    size  = 0.8
+  ) +
+  # APSIM soil field centroids
+  geom_sf(
+    data  = soils_il_centroids_sf,
+    color = "red",
+    size  = 0.25,
+    alpha = 0.4
+  ) +
+  # OFPE field centroids
+  geom_sf(
+    data  = field_il_centroids_sf,
+    color = "black",
+    size  = 0.5,
+    alpha = 0.4
+  ) +
+  scale_fill_brewer(palette = "Set2") +
+  coord_sf() +
+  theme_minimal() +
+  labs(fill = "APSIM region")
+
+p_left
+
+```
+
+```{r map apsim right}
+
+# --- Choose an example APSIM cell that has OFPE ---
+example_id10 <- 1001   # you can change this to any id_10 that has OFPE
+
+# All OFPE field-years in that cell
+example_ffy_ids <- ofpe_il_cells %>%
+  dplyr::filter(id_10 == example_id10) %>%
+  dplyr::pull(ffy_id) %>%
+  unique()
+
+example_ffy_ids
+example_ffy <- example_ffy_ids[1]  # take the first field-year in that cell
+example_ffy
+
+# APSIM soils in that cell
+soils_example_sf <- soils_il_cells_sf %>%
+  dplyr::filter(id_10 == example_id10)
+
+# Cell outline
+cell_outline <- cells_sf2 %>%
+  dplyr::filter(id_10 == example_id10)
+
+# OFPE merged_mukey data (subplot polygons) for that field-year
+merged_path <- file.path(analysis_dir, paste0(example_ffy, "_merged_mukey.rds"))
+merged_example_sf <- readRDS(merged_path) %>%
+  sf::st_transform(sf::st_crs(soils_example_sf))
+
+if (!"mukey_dom" %in% names(merged_example_sf)) {
+  stop(
+    "Merged data for ", example_ffy,
+    " has no mukey_dom; run the mukey-adding step first."
+  )
+}
+
+# 1) Build APSIM vs OFPE polygon sf for plotting ----------------------------
+
+# APSIM: use mukey polygons in that cell
+apsim_plot_sf <- soils_example_sf %>%
+  dplyr::mutate(
+    source    = "APSIM",
+    mukey_chr = as.character(mukey)
+  ) %>%
+  dplyr::select(source, mukey_chr, geometry)
+
+# OFPE: merged subplot polygons with dominant mukey
+ofpe_source_label <- paste0("OFPE field ", example_ffy)
+
+ofpe_plot_sf <- merged_example_sf %>%
+  dplyr::mutate(
+    source    = ofpe_source_label,
+    mukey_chr = as.character(mukey_dom)
+  ) %>%
+  dplyr::select(source, mukey_chr, geometry)
+
+# Combine both for the mukey comparison map
+combined_sf <- rbind(apsim_plot_sf, ofpe_plot_sf)
+
+# Alpha mapping for the two sources
+alpha_vals <- c("APSIM" = 0.5)
+alpha_vals[ofpe_source_label] <- 0.9
+
+# 2) Dashed lines: connect OFPE centroid to each APSIM FIELD centroid -------
+
+# OFPE centroid (union all subplots within this field-year)
+ofpe_centroid <- merged_example_sf %>%
+  sf::st_union() %>%
+  sf::st_centroid()
+
+# Collapse APSIM polygons to one per id_field, then centroid
+apsim_field_sf <- soils_example_sf %>%
+  dplyr::group_by(id_field) %>%
+  dplyr::summarise(
+    geometry = sf::st_union(geometry),
+    .groups  = "drop"
+  )
+
+apsim_centroids <- apsim_field_sf %>%
+  sf::st_centroid()
+
+# Create dashed linking lines: OFPE centroid → each APSIM FIELD centroid
+link_geoms <- lapply(seq_len(nrow(apsim_centroids)), function(i) {
+  coords_ofpe  <- sf::st_coordinates(ofpe_centroid)
+  coords_apsim <- sf::st_coordinates(apsim_centroids[i, ])
+  sf::st_linestring(rbind(coords_ofpe, coords_apsim))
+})
+
+links_sf <- sf::st_sf(
+  id_field = apsim_centroids$id_field,
+  geometry = sf::st_sfc(link_geoms, crs = sf::st_crs(apsim_centroids))
+)
+
+# 3) Zoomed plot ------------------------------------------------------------
+
+bb <- sf::st_bbox(combined_sf)
+x_margin <- 0.05 * (bb["xmax"] - bb["xmin"])
+y_margin <- 0.05 * (bb["ymax"] - bb["ymin"])
+
+p_right_zoom <- ggplot() +
+  geom_sf(
+    data = combined_sf,
+    aes(fill = mukey_chr, alpha = source),
+    color = "grey30",
+    size  = 0.4
+  ) +
+  geom_sf(
+    data     = links_sf,
+    color    = "black",
+    linetype = "dashed",
+    size     = 0.5
+  ) +
+  geom_sf(
+    data  = cell_outline,
+    fill  = NA,
+    color = "black",
+    size  = 0.7
+  ) +
+  scale_alpha_manual(values = alpha_vals) +
+  guides(alpha = guide_legend(title = "Source")) +
+  coord_sf(
+    xlim = c(bb["xmin"] - x_margin, bb["xmax"] + x_margin),
+    ylim = c(bb["ymin"] - y_margin, bb["ymax"] + y_margin)
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right") +
+  labs(fill = "mukey")
+
+p_right_zoom
+
+```
+
+
+```{r map apsim combine}
+
+p_combined <- p_left + p_right_zoom +
+  plot_layout(
+    ncol   = 2,
+    widths = c(1.4, 1)     # left panel a bit wider than right
+  ) +
+  plot_annotation(
+    title    = NULL,
+    subtitle = NULL,
+    theme    = theme(
+      plot.margin = margin(0, 0, 0, 0)
+    )
+  )
+
+p_combined
+
+saveRDS(
+  p_combined,
+  file = file.path(book_figure_bayes2_dir,"apsim_ofpe_panel.rds")
+)
+
+ggsave(
+  filename = file.path(book_figure_bayes2_dir, "apsim_ofpe_panel.pdf"),
+  plot     = p_combined,
+  width    = 10,
+  height   = 6,
+  units    = "in"
+)
+
+```

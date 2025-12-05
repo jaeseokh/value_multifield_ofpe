@@ -51,7 +51,8 @@ library(data.table)
 library(tidyverse)
 
 # Load modular processing utilities (IO + soils + topo + weather + stack)
-source(here("Code","Functions","functions_for_processing.R"))
+source(here("Code","src","functions_for_processing.R"))
+
 ```
 
 # Preparation
@@ -77,6 +78,7 @@ if (file.exists(here("Code","Main","0_Set_up.R"))) {
 # 1. Trial field lists
 
 ```{r field-list}
+
 # Use helper from functions_for_processing.R to find all trial IDs
 trial_lists <- read_trial_lists(base_dir = here("Data","Raw"))
 
@@ -98,11 +100,13 @@ saveRDS(ffy_id_dat, here("Data","Processed","ffy_id_list.rds"))
 
 length(ffy_id_dat)
 head(ffy_id_dat)
+
 ```
 
 # 2. Build date manifest (timing info for weather features)
 
 ```{r date-manifest}
+
 # Raw timing + product info (per field-year)
 date_info_raw <- readRDS(here("Data","Raw","date_product_info.rds"))
 setDT(date_info_raw)
@@ -125,13 +129,16 @@ date_manifest <- date_info_filtered[, .(
 
 # Quick check
 head(date_manifest)
+
 ```
 
 # 3. Process each field-year with build_field_dataset()
 
 ```{r per-field}
+
 # Container for per-field sf objects (with soils, topo, and ALL timing-specific weather vars)
 field_sf_list <- vector("list", length(ffy_id_dat))
+
 names(field_sf_list) <- ffy_id_dat
 
 for (i in seq_along(ffy_id_dat)) {

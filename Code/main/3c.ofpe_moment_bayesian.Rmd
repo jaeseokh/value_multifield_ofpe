@@ -1,0 +1,185 @@
+---
+title: "3c. OFPE N-level Moments for Bayesian Updating"
+author: "Jaeseok Hwang"
+format:
+  html:
+    toc: true
+    code-fold: true
+execute:
+  echo: true
+  warning: true
+  message: true
+---
+
+
+```{r setup}
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(sf)
+library(data.table)
+library(here)
+library(readr)
+library(ggplot2)
+
+knitr::opts_chunk$set(message = TRUE, warning = TRUE)
+
+apsim_dir            <- here("Data","APSIM")
+analysis_dir         <- here("Data","Processed","Analysis_ready")
+nass_dir             <- here("Data","Processed","NASS")
+apsim_ready_dir      <- here("Data","Processed","APSIP_compare_ready")
+book_result_dir      <- here("book","Results")
+book_figure_bayes2_dir <- here("book","Results","Figures","stage2_bayes")
+
+# normalize region labels from "3-North" → "North"
+normalize_region <- function(x) sub("^[0-9]+-", "", x)
+
+region_levels <- c("North","Central","South")
+
+# region-specific N band (same as 3b)
+region_bands <- tibble::tibble(
+  region = factor(region_levels, levels = region_levels),
+  N_min  = c(130, 140, 150),  # North, Central, South
+  N_max  = c(200, 210, 220)
+)
+
+# county benchmark yields (we may pull summary info later if needed)
+field_benchmarks <- readRDS(file.path(nass_dir, "field_benchmarks.rds"))
+
+
+
+```
+
+
+# Load APSIM / OFPE mapping objects
+
+```{r load}
+
+# mapping field-year → APSIM cell / region
+ofpe_il_cells <- readRDS(file.path(apsim_ready_dir, "ofpe_il_cells.rds")) %>%
+  mutate(region = normalize_region(region))
+
+# APSIM prior curves (already IL + OFPE cells)
+apsim_cell_curves_il <- readRDS(file.path(apsim_ready_dir, "apsim_cell_curves_il.rds")) %>%
+  mutate(region = normalize_region(region))
+
+# field meta
+field_loc2 <- readRDS(file.path(analysis_dir, "field_loc2.rds"))
+
+# Illinois field-year IDs
+il_ffy_ids <- field_loc2 %>%
+  dplyr::filter(stusps == "IL") %>%
+  dplyr::pull(ffy_id) %>%
+  unique()
+
+length(il_ffy_ids)
+
+```
+
+
+# OFPE N-level moments (raw + central)
+
+```{r ofpe-moments}
+
+# compute moments for each IL field-year
+ofpe_moments_list <- purrr::map(
+  il_ffy_ids,
+  compute_ofpe_moments_field,
+  analysis_dir = analysis_dir,
+  n_col = "n_rate",
+  y_col = "yield"
+)
+
+ofpe_moments_il <- ofpe_moments_list %>%
+  purrr::compact() %>%
+  dplyr::bind_rows() %>%
+  # attach region / APSIM cell + farm/field/year
+  dplyr::left_join(
+    ofpe_il_cells %>% dplyr::select(ffy_id, region, id_10),
+    by = "ffy_id"
+  ) %>%
+  dplyr::mutate(region = normalize_region(region)) %>%
+  dplyr::left_join(
+    field_loc2 %>% dplyr::select(ffy_id, farm, field, year),
+    by = "ffy_id"
+  ) %>%
+  dplyr::mutate(
+    region = factor(region, levels = region_levels),
+    farm   = as.integer(farm),
+    field  = as.integer(field),
+    year   = as.integer(year)
+  ) %>%
+  dplyr::left_join(region_bands, by = "region") %>%
+  # keep only within the region N band
+  dplyr::filter(
+    !is.na(N_min),
+    N_fert >= N_min,
+    N_fert <= N_max
+  ) %>%
+  dplyr::arrange(year, farm, field, N_fert)
+
+ofpe_moments_il %>% dplyr::glimpse()
+
+saveRDS(
+  ofpe_moments_il,
+  file.path(apsim_ready_dir, "ofpe_moments_il.rds")
+)
+```
+
+
+# APSIM prior moments in comparable format
+- treat the APSIM 30-year distribution as providing:
+- prior mean , prior variance 
+
+```{r apsim-moments}
+
+apsim_prior_moments_il <- ofpe_il_cells %>%
+  dplyr::select(ffy_id, region, id_10) %>%
+  dplyr::distinct() %>%
+  dplyr::mutate(region = normalize_region(region)) %>%
+  dplyr::left_join(
+    apsim_cell_curves_il,
+    by = c("region","id_10")
+  ) %>%
+  dplyr::left_join(
+    field_loc2 %>% dplyr::select(ffy_id, farm, field, year),
+    by = "ffy_id"
+  ) %>%
+  dplyr::mutate(
+    region = factor(region, levels = region_levels),
+    farm   = as.integer(farm),
+    field  = as.integer(field),
+    year   = as.integer(year)
+  ) %>%
+  dplyr::left_join(region_bands, by = "region") %>%
+  dplyr::filter(
+    !is.na(N_min),
+    N_lbs_ac >= N_min,
+    N_lbs_ac <= N_max
+  ) %>%
+  dplyr::mutate(
+    N_fert_prior = N_lbs_ac,
+    m1_prior     = Y_apsim_mean,
+    mu2_prior    = pmax(Y_apsim_var, 0),
+    sd_prior     = sqrt(mu2_prior),
+    mu3_prior    = 0,                 # placeholder: assume symmetry
+    skew_prior   = NA_real_
+  ) %>%
+  dplyr::select(
+    ffy_id, farm, field, year, region, id_10,
+    N_fert_prior,
+    m1_prior, mu2_prior, mu3_prior,
+    sd_prior, skew_prior
+  ) %>%
+  dplyr::arrange(year, farm, field, N_fert_prior)
+
+apsim_prior_moments_il %>% dplyr::glimpse()
+
+saveRDS(
+  apsim_prior_moments_il,
+  file.path(apsim_ready_dir, "apsim_prior_moments_il.rds")
+)
+
+```
+
