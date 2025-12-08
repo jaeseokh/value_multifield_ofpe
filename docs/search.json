@@ -37,7 +37,7 @@
     "href": "01.Overview.html#findings-limitations",
     "title": "1  Overview",
     "section": "Findings (Limitations)",
-    "text": "Findings (Limitations)\nLOLO revealed:\n\nstrong within-field fit\n\nweak cross-field and cross-year performance\n\nReasons:\n\nSpatial instability: learned patterns do not transfer\n\nPoor extrapolation: unseen soil–weather combinations fail\n\nStatic predictors: SSURGO + DEM do not capture dynamic ground N and water interaction\nProcess mismatch: yield–N depends on nitrogen cycling, water stress, and crop growth\n\nThis motivated the transition to the Bayesian–APSIM approach used in later chapters.\n\n\n\n\n:::{#quarto-navigation-envelope .hidden}\n[Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar-title\"}\n[Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-navbar-title\"}\n[&lt;span class='chapter-number'&gt;2&lt;/span&gt;  &lt;span class='chapter-title'&gt;Economic Framework&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-next\"}\n[Preface]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-prev\"}\n[Preface]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/index.htmlPreface\"}\n[Tree Ensemble Prediction (2022)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:quarto-sidebar-section-1\"}\n[&lt;span class='chapter-number'&gt;1&lt;/span&gt;  &lt;span class='chapter-title'&gt;Overview&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/01.Overview.html&lt;span-class='chapter-number'&gt;1&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Overview&lt;/span&gt;\"}\n[&lt;span class='chapter-number'&gt;2&lt;/span&gt;  &lt;span class='chapter-title'&gt;Economic Framework&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/02.Framework_Economics.html&lt;span-class='chapter-number'&gt;2&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Economic-Framework&lt;/span&gt;\"}\n[&lt;span class='chapter-number'&gt;3&lt;/span&gt;  &lt;span class='chapter-title'&gt;Data and Design&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/03.Data_and_Experiment.html&lt;span-class='chapter-number'&gt;3&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Data-and-Design&lt;/span&gt;\"}\n[&lt;span class='chapter-number'&gt;4&lt;/span&gt;  &lt;span class='chapter-title'&gt;Methods&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/04.Method.html&lt;span-class='chapter-number'&gt;4&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Methods&lt;/span&gt;\"}\n[&lt;span class='chapter-number'&gt;5&lt;/span&gt;  &lt;span class='chapter-title'&gt;Results(limitation)&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/05.Results(Limitation).html&lt;span-class='chapter-number'&gt;5&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Results(limitation)&lt;/span&gt;\"}\n[Bayesian-Hierarchical Analysis (2025)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:quarto-sidebar-section-2\"}\n[(PART) Bayesian-Hierarchical analysis (2025)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/06.Bayesian_priors_APSIM.html(PART)-Bayesian-Hierarchical-analysis-(2025)\"}\n[(PART) Bayesian-Hierarchical analysis (2025)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/07.Bayesian_update.html(PART)-Bayesian-Hierarchical-analysis-(2025)\"}\n[(PART) Bayesian-Hierarchical analysis (2025)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/08.Bayesian_posterior.html(PART)-Bayesian-Hierarchical-analysis-(2025)\"}\n[Tree Ensemble Prediction (2022)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-breadcrumbs-Tree-Ensemble-Prediction-(2022)\"}\n[&lt;span class='chapter-number'&gt;1&lt;/span&gt;  &lt;span class='chapter-title'&gt;Overview&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-breadcrumbs-&lt;span-class='chapter-number'&gt;1&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Overview&lt;/span&gt;\"}\n:::\n\n\n\n:::{#quarto-meta-markdown .hidden}\n[[1]{.chapter-number}  [Overview]{.chapter-title} – Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-metatitle\"}\n[[1]{.chapter-number}  [Overview]{.chapter-title} – Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-twittercardtitle\"}\n[[1]{.chapter-number}  [Overview]{.chapter-title} – Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-ogcardtitle\"}\n[Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-metasitename\"}\n[]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-twittercarddesc\"}\n[]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-ogcardddesc\"}\n:::\n\n\n\n\n&lt;!-- --&gt;\n\n::: {.quarto-embedded-source-code}\n```````````````````{.markdown shortcodes=\"false\"}\n# Overview \n\n```{r setup, include=FALSE}\n\nknitr::opts_chunk$set(\n  message = FALSE,\n  warning = FALSE,\n  fig.align = \"center\",\n  fig.width = 7,\n  fig.height = 5,\n  dpi = 300\n)\n\nlibrary(here)\nlibrary(dplyr)\nlibrary(sf)\nlibrary(ggplot2)\n\nanalysis_dir &lt;- here::here(\"Data\", \"Processed\", \"Analysis_ready\")\n\nfield_centroids_sf &lt;- readRDS(file.path(analysis_dir, \"field_centroids_sf.rds\"))\n\nus_map_sf &lt;- sf::st_read(\n  here::here(\"Data\", \"Raw\", \"us_state_2023.shp\"),\n  quiet = TRUE\n) |&gt; sf::st_transform(4326)\n\nofpe_fips &lt;- c(17, 18, 19, 20, 21, 26, 27, 29, 31, 38, 39, 46, 55)\n\nofpe_states_sf &lt;- us_map_sf |&gt;\n  dplyr::rename_with(tolower) |&gt;\n  dplyr::filter(statefp %in% ofpe_fips) |&gt;\n  dplyr::mutate(fips = as.numeric(statefp)) |&gt;\n  dplyr::select(fips, stusps, geometry)",
+    "text": "Findings (Limitations)\nLOLO revealed:\n\nstrong within-field fit\n\nweak cross-field and cross-year performance\n\nReasons:\n\nSpatial instability: learned patterns do not transfer\n\nPoor extrapolation: unseen soil–weather combinations fail\n\nStatic predictors: SSURGO + DEM do not capture dynamic ground N and water interaction\nProcess mismatch: yield–N depends on nitrogen cycling, water stress, and crop growth\n\nThis motivated the transition to the Bayesian–APSIM approach used in later chapters.\n\n\n\n\n:::{#quarto-navigation-envelope .hidden}\n[Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar-title\"}\n[Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-navbar-title\"}\n[&lt;span class='chapter-number'&gt;2&lt;/span&gt;  &lt;span class='chapter-title'&gt;Economic Framework&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-next\"}\n[Preface]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-prev\"}\n[Preface]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/index.htmlPreface\"}\n[Tree Ensemble Prediction (2022)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:quarto-sidebar-section-1\"}\n[&lt;span class='chapter-number'&gt;1&lt;/span&gt;  &lt;span class='chapter-title'&gt;Overview&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/01.Overview.html&lt;span-class='chapter-number'&gt;1&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Overview&lt;/span&gt;\"}\n[&lt;span class='chapter-number'&gt;2&lt;/span&gt;  &lt;span class='chapter-title'&gt;Economic Framework&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/02.Framework_Economics.html&lt;span-class='chapter-number'&gt;2&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Economic-Framework&lt;/span&gt;\"}\n[&lt;span class='chapter-number'&gt;3&lt;/span&gt;  &lt;span class='chapter-title'&gt;Data and Design&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/03.Data_and_Experiment.html&lt;span-class='chapter-number'&gt;3&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Data-and-Design&lt;/span&gt;\"}\n[&lt;span class='chapter-number'&gt;4&lt;/span&gt;  &lt;span class='chapter-title'&gt;Methods&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/04.Method.html&lt;span-class='chapter-number'&gt;4&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Methods&lt;/span&gt;\"}\n[&lt;span class='chapter-number'&gt;5&lt;/span&gt;  &lt;span class='chapter-title'&gt;Results(limitation)&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/05.Results(Limitation).html&lt;span-class='chapter-number'&gt;5&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Results(limitation)&lt;/span&gt;\"}\n[Bayesian-Hierarchical Analysis (2025)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:quarto-sidebar-section-2\"}\n[&lt;span class='chapter-number'&gt;6&lt;/span&gt;  &lt;span class='chapter-title'&gt;Overview(Bayesian)&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/06.Bayesian_Overview.html&lt;span-class='chapter-number'&gt;6&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Overview(Bayesian)&lt;/span&gt;\"}\n[&lt;span class='chapter-number'&gt;7&lt;/span&gt;  &lt;span class='chapter-title'&gt;Bayesian Framework&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/07.Bayesian_Framework.html&lt;span-class='chapter-number'&gt;7&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Bayesian-Framework&lt;/span&gt;\"}\n[&lt;span class='chapter-number'&gt;8&lt;/span&gt;  &lt;span class='chapter-title'&gt;Bayesian Method&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-int-sidebar:/08.Bayesian_Method.html&lt;span-class='chapter-number'&gt;8&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Bayesian-Method&lt;/span&gt;\"}\n[Tree Ensemble Prediction (2022)]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-breadcrumbs-Tree-Ensemble-Prediction-(2022)\"}\n[&lt;span class='chapter-number'&gt;1&lt;/span&gt;  &lt;span class='chapter-title'&gt;Overview&lt;/span&gt;]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-breadcrumbs-&lt;span-class='chapter-number'&gt;1&lt;/span&gt;--&lt;span-class='chapter-title'&gt;Overview&lt;/span&gt;\"}\n:::\n\n\n\n:::{#quarto-meta-markdown .hidden}\n[[1]{.chapter-number}  [Overview]{.chapter-title} – Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-metatitle\"}\n[[1]{.chapter-number}  [Overview]{.chapter-title} – Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-twittercardtitle\"}\n[[1]{.chapter-number}  [Overview]{.chapter-title} – Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-ogcardtitle\"}\n[Bayesian Yield–N Modeling]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-metasitename\"}\n[]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-twittercarddesc\"}\n[]{.hidden .quarto-markdown-envelope-contents render-id=\"quarto-ogcardddesc\"}\n:::\n\n\n\n\n&lt;!-- --&gt;\n\n::: {.quarto-embedded-source-code}\n```````````````````{.markdown shortcodes=\"false\"}\n# Overview \n\n```{r setup, include=FALSE}\n\nknitr::opts_chunk$set(\n  message = FALSE,\n  warning = FALSE,\n  fig.align = \"center\",\n  fig.width = 7,\n  fig.height = 5,\n  dpi = 300\n)\n\nlibrary(here)\nlibrary(dplyr)\nlibrary(sf)\nlibrary(ggplot2)\n\nanalysis_dir &lt;- here::here(\"Data\", \"Processed\", \"Analysis_ready\")\n\nfield_centroids_sf &lt;- readRDS(file.path(analysis_dir, \"field_centroids_sf.rds\"))\n\nus_map_sf &lt;- sf::st_read(\n  here::here(\"Data\", \"Raw\", \"us_state_2023.shp\"),\n  quiet = TRUE\n) |&gt; sf::st_transform(4326)\n\nofpe_fips &lt;- c(17, 18, 19, 20, 21, 26, 27, 29, 31, 38, 39, 46, 55)\n\nofpe_states_sf &lt;- us_map_sf |&gt;\n  dplyr::rename_with(tolower) |&gt;\n  dplyr::filter(statefp %in% ofpe_fips) |&gt;\n  dplyr::mutate(fips = as.numeric(statefp)) |&gt;\n  dplyr::select(fips, stusps, geometry)",
     "crumbs": [
       "Tree Ensemble Prediction (2022)",
       "<span class='chapter-number'>1</span>  <span class='chapter-title'>Overview</span>"
@@ -70,7 +70,7 @@
     "href": "02.Framework_Economics.html",
     "title": "2  Economic Framework",
     "section": "",
-    "text": "1. Motivation and Role of Information\nOn-farm experiments (OFEs) have long been a cornerstone of agronomic research, providing structured, randomized trials to estimate crop yield responses to key inputs such as nitrogen (N). Their small plot size, however, limits the ability to capture spatial heterogeneity, which can bias estimates of the Economic Optimum Nitrogen Rate (EONR) when field variability is ignored (Bullock et al. 2009; Anselin, Bongiovanni, and Lowenberg-DeBoer 2004).\nThe emergence of On-Farm Precision Experiments (OFPEs) offers a scalable alternative. Using GPS-guided machinery, OFPEs introduce variable-rate nitrogen treatments across entire commercial fields, generating large spatial datasets that better reflect realistic production environments (Bullock et al. 2019; Gebbers and Adamchuk 2010). Yet, this approach introduces new costs and risks for growers. Testing extreme N rates—particularly low or unprofitable levels—can expose farmers to revenue losses (Lara et al. 2023), and multi-year replication is often required to capture the agronomic interactions between nitrogen, soil, and weather.\nThese constraints raise the central question of this study:\nCan multi-field OFPE data provide decision-relevant information for fields where no direct OFPE has been conducted?\nIf so, OFPE data could generate positive externalities, enabling farmers to benefit from trials done on other fields. This would be especially valuable in the U.S. Corn Belt, where growers manage large areas but face logistical, financial, and risk-related barriers to running their own OFPEs.\nThis chapter develops the economic framework underlying that question.",
+    "text": "1. Motivation and Role of Information\nOn-farm experiments (OFEs) have long been a cornerstone of agronomic research, providing structured, randomized trials to estimate crop yield responses to key inputs such as nitrogen (N). Their small plot size, however, limits the ability to capture spatial heterogeneity, which can bias estimates of the Economic Optimum Nitrogen Rate (EONR) when field variability is ignored (D. S. Bullock et al. 2009; Anselin, Bongiovanni, and Lowenberg-DeBoer 2004).\nThe emergence of On-Farm Precision Experiments (OFPEs) offers a scalable alternative. Using GPS-guided machinery, OFPEs introduce variable-rate nitrogen treatments across entire commercial fields, generating large spatial datasets that better reflect realistic production environments (D. Bullock and al. 2019; Gebbers and Adamchuk 2010). Yet, this approach introduces new costs and risks for growers. Testing extreme N rates—particularly low or unprofitable levels—can expose farmers to revenue losses (Jong 2023), and multi-year replication is often required to capture the agronomic interactions between nitrogen, soil, and weather.\nThese constraints raise the central question of this study:\nCan multi-field OFPE data provide decision-relevant information for fields where no direct OFPE has been conducted?\nIf so, OFPE data could generate positive externalities, enabling farmers to benefit from trials done on other fields. This would be especially valuable in the U.S. Corn Belt, where growers manage large areas but face logistical, financial, and risk-related barriers to running their own OFPEs.\nThis chapter develops the economic framework underlying that question.",
     "crumbs": [
       "Tree Ensemble Prediction (2022)",
       "<span class='chapter-number'>2</span>  <span class='chapter-title'>Economic Framework</span>"
@@ -81,7 +81,7 @@
     "href": "02.Framework_Economics.html#yield-response-and-the-information-structure",
     "title": "2  Economic Framework",
     "section": "2. Yield Response and the Information Structure",
-    "text": "2. Yield Response and the Information Structure\nFollowing Bullock et al. (2009), crop yield \\(y\\) is modeled as:\n\\[\ny = f(\\mathbf{x}, \\mathbf{c}, \\mathbf{z})\n\\tag{2.1}\\]\nwhere:\n\n\\(\\mathbf{x}\\) = vector of controllable inputs (seed, fertilizer, herbicides, hybrids),\n\n\\(\\mathbf{c}\\) = field characteristics (soil, organic matter, topography),\n\n\\(\\mathbf{z}\\) = stochastic temporal variables (weather, pests).\n\nThe full function\n\\[f(\\mathbf{x}, \\mathbf{c}, \\mathbf{z})\\]\nis referred to as nature’s meta-response function.\nFor a specific field \\(i\\) with characteristic map \\(\\mathbf{c}_i\\), the site-specific response function is:\n\\[\nf_i(\\mathbf{x}, \\mathbf{z}) \\equiv f(\\mathbf{x}, \\mathbf{c}_i, \\mathbf{z})\n\\]\nThis function determines how yield responds to nitrogen under that field’s soil and topographic conditions.",
+    "text": "2. Yield Response and the Information Structure\nFollowing D. S. Bullock et al. (2009), crop yield \\(y\\) is modeled as:\n\\[\ny = f(\\mathbf{x}, \\mathbf{c}, \\mathbf{z})\n\\tag{2.1}\\]\nwhere:\n\n\\(\\mathbf{x}\\) = vector of controllable inputs (seed, fertilizer, herbicides, hybrids),\n\n\\(\\mathbf{c}\\) = field characteristics (soil, organic matter, topography),\n\n\\(\\mathbf{z}\\) = stochastic temporal variables (weather, pests).\n\nThe full function\n\\[f(\\mathbf{x}, \\mathbf{c}, \\mathbf{z})\\]\nis referred to as nature’s meta-response function.\nFor a specific field \\(i\\) with characteristic map \\(\\mathbf{c}_i\\), the site-specific response function is:\n\\[\nf_i(\\mathbf{x}, \\mathbf{z}) \\equiv f(\\mathbf{x}, \\mathbf{c}_i, \\mathbf{z})\n\\]\nThis function determines how yield responds to nitrogen under that field’s soil and topographic conditions.",
     "crumbs": [
       "Tree Ensemble Prediction (2022)",
       "<span class='chapter-number'>2</span>  <span class='chapter-title'>Economic Framework</span>"
@@ -222,12 +222,12 @@
   {
     "objectID": "08.Bayesian_posterior.html",
     "href": "08.Bayesian_posterior.html",
-    "title": "(PART) Bayesian-Hierarchical analysis (2025)",
+    "title": "8  Bayesian Method",
     "section": "",
-    "text": "Posterior N-response distributions",
+    "text": "1. Overview of the Bayesian Moment-Based Framework\nThis chapter develops the empirical machinery for combining:\nBoth datasets are transformed into a common representation:\nthe first three moments of the yield distribution at each nitrogen rate \\(N\\):\n\\[\n\\big( \\mu_1(N),\\ \\mu_2(N),\\ \\mu_3(N) \\big),\n\\]\nwhere:\nAPSIM provides an informed but non-field-specific prior,\nand OFPE provides a noisy likelihood.\nThe combination yields a posterior set of moments, which feed into a\nmaximum-entropy posterior predictive distribution.",
     "crumbs": [
       "Bayesian-Hierarchical Analysis (2025)",
-      "(PART) Bayesian-Hierarchical analysis (2025)"
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>Bayesian Method</span>"
     ]
   },
   {
@@ -279,6 +279,281 @@
     "text": "Soil Survey Geographic Database (USDA NRCS)↩︎\nDigital Elevation Model using LiDAR↩︎\nAgricultural Production Systems sIMulator↩︎",
     "crumbs": [
       "Preface"
+    ]
+  },
+  {
+    "objectID": "06.Bayesian_Overview.html",
+    "href": "06.Bayesian_Overview.html",
+    "title": "6  Overview(Bayesian)",
+    "section": "",
+    "text": "Background\nOn-farm precision experiments (OFPE) generate high-resolution yield data under many nitrogen (N) rates on a small number of fields.\nAt first glance, this seems ideal for predicting yield–N relationships: fit a flexible machine-learning model (e.g., tree ensembles) and use it to choose the profit-maximizing N rate.\nHowever, the earlier tree-ensemble work showed that:\nSo the goal of this chapter is not to build the best forecasting model.\nInstead, the goal is to give farmers a disciplined way to combine what they already know (priors) with what they learn from OFPE (data) so that their N decisions become more reasonable and more profitable as experience accumulates over years.\nIn other words, the focus shifts from:\nto",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>Overview(Bayesian)</span>"
+    ]
+  },
+  {
+    "objectID": "06.Bayesian_Overview.html#background",
+    "href": "06.Bayesian_Overview.html#background",
+    "title": "6  Overview(Bayesian)",
+    "section": "",
+    "text": "Yield is driven by a high-dimensional interaction of N, soils, weather, and management.\nEven sophisticated ensemble models trained on cleaned OFPE data do not deliver stable, field-specific forecasts at unseen locations or years.\nWith only one or two OFPE years per field, trying to “forecast everything” from those data is not realistic.\n\n\n\n\n“Can one or two years of OFPE make me rich right now?”\n\n\n\n“Given APSIM simulations, county yield history, and my noisy OFPE field trials, what is a coherent, transparent way to update my beliefs about the yield–N curve on this field?”",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>Overview(Bayesian)</span>"
+    ]
+  },
+  {
+    "objectID": "06.Bayesian_Overview.html#information-layers-apsim-grid-and-ofpe-fields",
+    "href": "06.Bayesian_Overview.html#information-layers-apsim-grid-and-ofpe-fields",
+    "title": "6  Overview(Bayesian)",
+    "section": "Information layers: APSIM grid and OFPE fields",
+    "text": "Information layers: APSIM grid and OFPE fields\nThe figure below summarizes the information structure for data:\n\np_combined\n\n\n\n\nFigure 1. Information structure of APSIM and OFPE data at Illinois\n\n\n\n\n\nLeft panel: APSIM simulation grid, aggregated into three agronomic regions (South, Central, North). Each cell has a 30-year simulated yield–N distribution.\nRed polygons/points: locations of OFPE fields overlaying the APSIM grid.\nRight panel: zoom on one APSIM cell and a single OFPE field (e.g., Farm 19, Field 1, 2022), showing how the field sits inside a cell with heterogeneous soils (different mukey values).\n\nThis map captures the basic logic of the Bayesian chapter:\n\nAPSIM region–cell priors\nFor each APSIM cell and N rate, we have a prior distribution of yield (mean, variance, skewness) based on long-run weather and soils.\nField-specific OFPE data\nOn a subset of cells we observe OFPE data: noisy yield outcomes at a finite set of N rates in one or two years.\nBayesian updating at the field–N level\nAt each N rate, we update the APSIM prior moments with the OFPE sample moments to obtain a posterior yield–N distribution for that field and year.\n\nThe rest of the chapter formalizes this updating and studies how much the OFPE data actually move the prior, and how that matters for N decisions.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>Overview(Bayesian)</span>"
+    ]
+  },
+  {
+    "objectID": "06.Bayesian_Overview.html#what-this-chapter-claims-and-what-it-does-not",
+    "href": "06.Bayesian_Overview.html#what-this-chapter-claims-and-what-it-does-not",
+    "title": "6  Overview(Bayesian)",
+    "section": "What this chapter claims (and what it does not)",
+    "text": "What this chapter claims (and what it does not)\n\n1. OFPE alone is not a credible decision supporter\nEven with careful cleaning and clustering, single-field OFPE data are:\n\nNoisy: high within-N variance due to micro-topography, measurement error, and unobserved shocks.\nSparse in time: one or two years rarely span the full range of weather states.\nHigh-dimensional: soils, topography, and management interact with N in ways that tree models can fit in-sample but cannot reliably extrapolate.\n\nTherefore, OFPE by itself is not sufficient to deliver stable, field-specific profit-maximizing N recommendations.\n\n\n2. APSIM and county yield history are useful—but incomplete—priors\nLong-run APSIM simulations and county yield histories:\n\nCapture systematic spatial patterns (North vs Central vs South) and climate-driven trends.\nProvide smooth, concave yield–N curves at the cell or county scale.\n\nBut they do not know the farmer’s specific field:\n\nLocal management, drainage, and micro-soils can shift the whole yield–N curve up or down.\nAPSIM calibration and county averages can misrepresent the level and curvature of the true field-level response.\n\nSo these sources are good priors—they encode agronomic knowledge and regional history—but they do not by themselves produce field-optimal N rates.\n\n\n3. The contribution of this Bayesian chapter\nThe contribution is not to show that “one or two years of OFPE make farmers dramatically richer.”\nInstead, the contribution is to build a coherent Bayesian framework that:\n\nTreats APSIM simulations and county history as prior information about the yield–N distribution for each cell and region.\nTreats OFPE cluster means and variances as noisy “likelihood” information about the field-specific yield–N curve.\nUpdates prior moments (mean and variance, and optionally skewness) into posterior yield–N distributions at each N rate.\nUses these posterior distributions to derive field-specific N recommendations and to evaluate:\n\nHow far OFPE moves the prior (in μ₁, μ₂, and implied optimal N).\nHow much expected profit changes relative to prior-only or data-only decisions.\n\n\nThe key message is:\n\nOFPE is most valuable when interpreted as additional evidence that shifts a prior, not as a standalone forecasting engine.\nThis chapter shows how to do that update in a way that is transparent, statistically coherent, and scalable as more OFPE seasons accumulate.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>Overview(Bayesian)</span>"
+    ]
+  },
+  {
+    "objectID": "06.Bayesian_Overview.html#roadmap-of-the-bayesian-section",
+    "href": "06.Bayesian_Overview.html#roadmap-of-the-bayesian-section",
+    "title": "6  Overview(Bayesian)",
+    "section": "Roadmap of the Bayesian section",
+    "text": "Roadmap of the Bayesian section\nThe rest of the Bayesian part of the book is organized as follows:\n\n** Bayesian_Framework **\n\nFormalize the farmer’s nitrogen–choice problem under uncertainty.\n\nIntroduce prior, likelihood, and posterior yield–N distributions.\n\nDefine profit and regret measures for comparing decision rules.\n\n\n\n** Bayesian_Method **\n\nConstruct OFPE and APSIM yield–N moment tables.\n\nDefine the Bayesian moment update and maximum-entropy posterior construction.\n\nDescribe how optimal nitrogen rates are derived from prior, data-only, and posterior distributions.\n\n\n\n** Bayesian_Results **\n\nShow how OFPE updates APSIM priors at the field level (posterior μ₁, μ₂, and optimal N).\n\nCompare profits and N use under different decision rules on repeated fields.\n\nDiscuss where OFPE has meaningful influence and where noise dominates.\n\nTogether, these chapters reposition OFPE from a fragile forecasting tool to a Bayesian learning device that helps farmers use limited trial data to gradually refine field-specific N decisions over time.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>Overview(Bayesian)</span>"
+    ]
+  },
+  {
+    "objectID": "07.Bayesian_Framework.html",
+    "href": "07.Bayesian_Framework.html",
+    "title": "7  Bayesian Framework",
+    "section": "",
+    "text": "1. Farmer’s Decision Problem under Uncertainty\nFarmers choose nitrogen (N) without knowing the true yield response function.\nTwo empirical realities constrain that decision:\nNeither source alone delivers a reliable N recommendation.\nThis motivates a Bayesian learning structure, in which:",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>7</span>  <span class='chapter-title'>Bayesian Framework</span>"
+    ]
+  },
+  {
+    "objectID": "07.Bayesian_Framework.html#motivation",
+    "href": "07.Bayesian_Framework.html#motivation",
+    "title": "7  Bayesian Framework",
+    "section": "",
+    "text": "OFPE experiments are highly noisy\nSpatial variability, year effects, and management heterogeneity produce\nimprecise estimates of the yield–N curve from a single field-year trial\n(Jong 2023; Bullock and al. 2019).\nAPSIM provides mechanistic structure but lacks field specificity\nProcess-based crop models such as APSIM capture biophysical N–water–growth dynamics across weather years (Holzworth and al. 2014),\nbut they do not replicate field-level soil heterogeneity or yield levels.\n\n\n\nAPSIM provides a prior belief about yield distributions, and\n\nOFPE supplies noisy field-specific evidence that updates the prior.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>7</span>  <span class='chapter-title'>Bayesian Framework</span>"
+    ]
+  },
+  {
+    "objectID": "07.Bayesian_Framework.html#farmers-decision-problem-under-uncertainty",
+    "href": "07.Bayesian_Framework.html#farmers-decision-problem-under-uncertainty",
+    "title": "7  Bayesian Framework",
+    "section": "",
+    "text": "OFPE experiments are highly noisy\nSpatial variability, year effects, and management heterogeneity produce\nimprecise estimates of the yield–N curve from a single field-year trial\n(Jong 2023; Bullock and al. 2019).\nAPSIM provides mechanistic structure but lacks field specificity\nProcess-based crop models such as APSIM capture biophysical N–water–growth dynamics across weather years (Holzworth and al. 2014),\nbut they do not replicate field-level soil heterogeneity or yield levels.\n\n\n\nAPSIM provides a prior belief about yield distributions, and\n\nOFPE supplies noisy field-specific evidence that updates the prior.\n\n\nAPSIM and OFPE as Complementary Information Sources\nLet \\(Y(N)\\) be random yield at nitrogen rate \\(N\\),\nand let \\(p_y\\) and \\(p_n\\) denote crop and nitrogen prices.\nProfit is:\n\\[\n\\pi(N) = p_y Y(N) - p_n N.\n\\]\nThe farmer selects:\n\\[\nN^\\star = \\arg\\max_N \\mathbb{E}[\\pi(N)].\n\\]\nThe difficulty is that the expectation \\(\\mathbb{E}[Y(N)]\\) is unknown.\nA rational decision maker therefore operates with a subjective predictive distribution for \\(Y(N)\\).",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>7</span>  <span class='chapter-title'>Bayesian Framework</span>"
+    ]
+  },
+  {
+    "objectID": "07.Bayesian_Framework.html#apsim-and-ofpe-as-complementary-information-sources",
+    "href": "07.Bayesian_Framework.html#apsim-and-ofpe-as-complementary-information-sources",
+    "title": "7  Bayesian Framework",
+    "section": "3. APSIM and OFPE as Complementary Information Sources",
+    "text": "3. APSIM and OFPE as Complementary Information Sources\n\n7.0.1 APSIM: A Prior Distribution\nAPSIM generates a distribution for yield conditional on nitrogen:\n\\[\nf_{\\text{prior}}(y \\mid N),\n\\]\nwith implied prior moments:\n\\[\n\\big\\{ \\mu_{1,0}(N),\\ \\mu_{2,0}(N),\\ \\mu_{3,0}(N) \\big\\}.\n\\]\nThis prior encodes:\n\nlong-run climate variability,\n\nsoil × water × nitrogen dynamics,\n\nagronomically plausible curvature and diminishing returns.\n\nBut APSIM alone cannot reflect:\n\nfield-specific yield levels,\n\nmicro-scale soil variation,\n\nmanagement idiosyncrasies.\n\nThus it is an informed prior, not a prescriptive curve.\n\n\n\n7.0.2 OFPE: Noisy Field-Specific Evidence\nOne OFPE field-year produces sample moments at each rate \\(N\\):\n\\[\n\\bar{Y}(N), \\quad s^2(N), \\quad m_3(N),\n\\]\nbut these reflect one realization of:\n\nweather,\nsoil heterogeneity,\nfield operations.\n\nOFPE therefore provides high-variance evidence that cannot stand alone as an estimator of \\(Y(N)\\).",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>7</span>  <span class='chapter-title'>Bayesian Framework</span>"
+    ]
+  },
+  {
+    "objectID": "07.Bayesian_Framework.html#bayesian-updating-constructing-the-posterior-yield-distribution",
+    "href": "07.Bayesian_Framework.html#bayesian-updating-constructing-the-posterior-yield-distribution",
+    "title": "7  Bayesian Framework",
+    "section": "4. Bayesian Updating: Constructing the Posterior Yield Distribution",
+    "text": "4. Bayesian Updating: Constructing the Posterior Yield Distribution\nThe farmer combines APSIM structure with OFPE evidence through:\n\\[\nf_{\\text{post}}(y \\mid N)\n\\ \\propto\\\nf_{\\text{prior}}(y \\mid N)\n\\times\nL(\\text{OFPE data} \\mid y, N),\n\\]\nwhere the likelihood is derived from OFPE sample moments.\n\nPosterior mean\nUnder a normal–normal moment-matching structure:\n\\[\n\\mu_{1,\\text{post}}(N)\n=\n\\frac{\\tau_0 \\mu_{1,0}(N) + \\tau_d \\bar{Y}(N)}\n     {\\tau_0 + \\tau_d},\n\\]\nwhere:\n\n\\(\\tau_0 = 1/\\mu_{2,0}(N)\\) is prior precision,\n\n\\(\\tau_d = 1/[s^2(N)/n(N)]\\) is data precision.\n\nThis is classical Bayesian shrinkage:\nthe posterior pulls noisy OFPE data toward the APSIM expectation,\nwith the weight determined by the relative variances.\n\n\nPosterior variance\n\\[\n\\mu_{2,\\text{post}}(N)\n=\n\\frac{1}{\\tau_0 + \\tau_d}.\n\\]\n\n\nPosterior skewness (third moment)\nOFPE rarely identifies skewness reliably from a single season.\nThus the third moment is inherited from APSIM:\n\\[\n\\mu_{3,\\text{post}}(N) = \\mu_{3,0}(N).\n\\]\n\n\nPosterior predictive distribution\nGiven the triple of posterior moments\n\\((\\mu_{1,\\text{post}},\\mu_{2,\\text{post}},\\mu_{3,\\text{post}})\\),\nwe construct the maximum-entropy density:\n\\[\nf_{\\text{post}}(y \\mid N)\n\\propto\n\\exp(\\lambda_1 y + \\lambda_2 y^2 + \\lambda_3 y^3),\n\\]\nsolving for \\(\\lambda\\)’s so that the posterior moments match\n(Jaynes 1957).\nThis provides a full predictive distribution, not only mean–variance.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>7</span>  <span class='chapter-title'>Bayesian Framework</span>"
+    ]
+  },
+  {
+    "objectID": "07.Bayesian_Framework.html#bayesian-optimal-nitrogen-rate",
+    "href": "07.Bayesian_Framework.html#bayesian-optimal-nitrogen-rate",
+    "title": "7  Bayesian Framework",
+    "section": "5. Bayesian Optimal Nitrogen Rate",
+    "text": "5. Bayesian Optimal Nitrogen Rate\nGiven the posterior density:\n\\[\nN^\\star_{\\text{post}}\n=\n\\arg\\max_N\n\\Big\\{\np_y \\mu_{1,\\text{post}}(N) - p_n N\n\\Big\\}.\n\\]\nPosterior expectations produce:\n\nsmoother and more stable optimal N curves,\n\nless sensitivity to OFPE noise,\n\nmore economically coherent recommendations.\n\nThis contrasts sharply with:\n\ndata-only EONR, which is highly unstable, and\n\nAPSIM-only EONR, which ignores field-level evidence.\n\nThe key conceptual contribution is:\n\nOFPE is not a stand-alone estimator but an updating mechanism that refines prior knowledge about a specific field.\n\n\n\n\n\n\n\n\nBullock, DS, and et al. 2019. “Data-Intensive Farm Management for Precision Agriculture.” Applied Economic Perspectives and Policy.\n\n\nHolzworth, David P, and et al. 2014. “APSIM—Evolution Towards a New Generation of Agricultural Systems Simulation.” Environmental Modelling & Software.\n\n\nJaynes, Edwin T. 1957. “Information Theory and Statistical Mechanics.” Physical Review.\n\n\nJong, et al. de. 2023. “Predicting Yield Response from on-Farm Trials.” Agricultural Systems.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>7</span>  <span class='chapter-title'>Bayesian Framework</span>"
+    ]
+  },
+  {
+    "objectID": "07.Bayesian_Framework.html#conceptual-contribution-of-this-bayesian-framework",
+    "href": "07.Bayesian_Framework.html#conceptual-contribution-of-this-bayesian-framework",
+    "title": "7  Bayesian Framework",
+    "section": "Conceptual Contribution of This Bayesian Framework",
+    "text": "Conceptual Contribution of This Bayesian Framework\nThis study reframes the role of OFPE in agricultural decision making:\n\nOFPE cannot forecast yield or EONR reliably from one or two years of data.\n\nAPSIM cannot prescribe field-level N rates without local adjustment.\n\nBut together, they form a Bayesian learning system in which\nOFPE incrementally improves the prior through moment-based updating.\n\nThis is the foundational logic behind the empirical chapters that follow.\n\n\n\n\n\n\nBullock, DS, and et al. 2019. “Data-Intensive Farm Management for Precision Agriculture.” Applied Economic Perspectives and Policy.\n\n\nHolzworth, David P, and et al. 2014. “APSIM—Evolution Towards a New Generation of Agricultural Systems Simulation.” Environmental Modelling & Software.\n\n\nJaynes, Edwin T. 1957. “Information Theory and Statistical Mechanics.” Physical Review.\n\n\nJong, et al. de. 2023. “Predicting Yield Response from on-Farm Trials.” Agricultural Systems.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>7</span>  <span class='chapter-title'>Bayesian Framework</span>"
+    ]
+  },
+  {
+    "objectID": "07.Bayesian_Framework.html#apsim-a-prior-distribution",
+    "href": "07.Bayesian_Framework.html#apsim-a-prior-distribution",
+    "title": "7  Bayesian Framework",
+    "section": "2. APSIM: A Prior Distribution",
+    "text": "2. APSIM: A Prior Distribution\nAPSIM generates a distribution for yield conditional on nitrogen:\n\\[\nf_{\\text{prior}}(y \\mid N),\n\\]\nwith implied prior moments:\n\\[\n\\big\\{ \\mu_{1,0}(N),\\ \\mu_{2,0}(N),\\ \\mu_{3,0}(N) \\big\\}.\n\\]\nThis prior encodes:\n\nlong-run climate variability,\n\nsoil × water × nitrogen dynamics,\n\nagronomically plausible curvature and diminishing returns.\n\nBut APSIM alone cannot reflect:\n\nfield-specific yield levels,\n\nmicro-scale soil variation,\n\nmanagement idiosyncrasies.\n\nThus it is an informed prior, not a prescriptive curve.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>7</span>  <span class='chapter-title'>Bayesian Framework</span>"
+    ]
+  },
+  {
+    "objectID": "07.Bayesian_Framework.html#ofpe-noisy-field-specific-evidence",
+    "href": "07.Bayesian_Framework.html#ofpe-noisy-field-specific-evidence",
+    "title": "7  Bayesian Framework",
+    "section": "3. OFPE: Noisy Field-Specific Evidence",
+    "text": "3. OFPE: Noisy Field-Specific Evidence\nOne OFPE field-year produces sample moments at each rate \\(N\\):\n\\[\n\\bar{Y}(N), \\quad s^2(N), \\quad m_3(N),\n\\]\nbut these reflect one realization of:\n\nweather,\nsoil heterogeneity,\nfield operations.\n\nOFPE therefore provides high-variance evidence that cannot stand alone as an estimator of \\(Y(N)\\).",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>7</span>  <span class='chapter-title'>Bayesian Framework</span>"
+    ]
+  },
+  {
+    "objectID": "08.Bayesian_posterior.html#apsim-as-a-prior-moment-sequence",
+    "href": "08.Bayesian_posterior.html#apsim-as-a-prior-moment-sequence",
+    "title": "8  Bayesian Method",
+    "section": "8.1 2.1 APSIM as a prior moment sequence",
+    "text": "8.1 2.1 APSIM as a prior moment sequence\nFor each APSIM cell and rate \\(N\\):\n\nmultiple weather-year simulations produce a distribution of yields\n\nwe compute:\n\n\\[\n\\mu_{1,0}(N),\\quad\n\\mu_{2,0}(N),\\quad\n\\mu_{3,0}(N)\n\\]\nThese represent the farmer’s prior belief about yield at rate \\(N\\):\na smooth, agronomically coherent curve shaped by water stress, mineralization, and APSIM physics.\nAPSIM provides:\n\nplausible curvature,\n\ndiminishing returns to nitrogen,\n\nrealistic year-to-year variance.\n\nBut it may misalign with a field’s yield level or responsiveness.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>Bayesian Method</span>"
+    ]
+  },
+  {
+    "objectID": "08.Bayesian_posterior.html#ofpe-as-noisy-sample-moments",
+    "href": "08.Bayesian_posterior.html#ofpe-as-noisy-sample-moments",
+    "title": "8  Bayesian Method",
+    "section": "8.2 2.2 OFPE as noisy sample moments",
+    "text": "8.2 2.2 OFPE as noisy sample moments\nFor each field-year and OFPE cluster (strip) at nitrogen rate \\(N\\):\n\nthe raw OFPE observations yield:\n\n\\[\n\\bar{Y}(N),\\qquad s^2(N),\\qquad m_3(N),\n\\]\nwith \\(n(N)\\) observations in that cluster.\nThese moments reflect one realized season, containing:\n\nidiosyncratic weather shocks,\n\nfield-specific soil micro-variability,\n\nmeasurement noise.\n\nThus OFPE provides field-specific but imprecise evidence.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>Bayesian Method</span>"
+    ]
+  },
+  {
+    "objectID": "08.Bayesian_posterior.html#posterior-mean",
+    "href": "08.Bayesian_posterior.html#posterior-mean",
+    "title": "8  Bayesian Method",
+    "section": "8.3 3.1 Posterior mean",
+    "text": "8.3 3.1 Posterior mean\nPosterior expected yield is a precision-weighted average:\n\\[\n\\mu_{1,\\text{post}}(N)\n=\n\\frac{\n  \\tau_0(N) \\mu_{1,0}(N)\n  +\n  \\tau_d(N)\\bar{Y}(N)\n}{\n  \\tau_0(N) + \\tau_d(N)\n}.\n\\]\nThis exhibits classical Bayesian shrinkage:\n\nWhen OFPE is noisy (\\(n\\) small, \\(s^2\\) large), the posterior relies more heavily on APSIM.\n\nWhen OFPE is dense and consistent, the posterior moves toward the sample mean.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>Bayesian Method</span>"
+    ]
+  },
+  {
+    "objectID": "08.Bayesian_posterior.html#posterior-variance",
+    "href": "08.Bayesian_posterior.html#posterior-variance",
+    "title": "8  Bayesian Method",
+    "section": "8.4 3.2 Posterior variance",
+    "text": "8.4 3.2 Posterior variance\nPosterior precision is additive:\n\\[\n\\tau_{\\text{post}}(N) = \\tau_0(N) + \\tau_d(N),\n\\]\nwith variance:\n\\[\n\\mu_{2,\\text{post}}(N) = \\frac{1}{\\tau_{\\text{post}}(N)}.\n\\]\nPosterior uncertainty is always lower than either source alone,\nreflecting the information gain from combining two signals.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>Bayesian Method</span>"
+    ]
+  },
+  {
+    "objectID": "08.Bayesian_posterior.html#posterior-skewness-third-moment",
+    "href": "08.Bayesian_posterior.html#posterior-skewness-third-moment",
+    "title": "8  Bayesian Method",
+    "section": "8.5 3.3 Posterior skewness (third moment)",
+    "text": "8.5 3.3 Posterior skewness (third moment)\nOFPE provides extremely noisy estimates of skewness.\nTherefore we adopt a prior-dominant update:\n\\[\n\\mu_{3,\\text{post}}(N) = \\mu_{3,0}(N),\n\\]\nretaining agronomic structure encoded in APSIM.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>Bayesian Method</span>"
+    ]
+  },
+  {
+    "objectID": "08.Bayesian_Method.html",
+    "href": "08.Bayesian_Method.html",
+    "title": "8  Bayesian Method",
+    "section": "",
+    "text": "1. Overview of the Bayesian Moment-Based Framework\nThis chapter develops the empirical machinery for combining:\nBoth datasets are transformed into a common representation:\nthe first three moments of the yield distribution at each nitrogen rate \\(N\\):\n\\[\n\\big( \\mu_1(N),\\ \\mu_2(N),\\ \\mu_3(N) \\big),\n\\]\nwhere:\nAPSIM provides an informed but non-field-specific prior,\nand OFPE provides a noisy likelihood.\nThe combination yields a posterior set of moments, which feed into a\nmaximum-entropy posterior predictive distribution.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>Bayesian Method</span>"
+    ]
+  },
+  {
+    "objectID": "08.Bayesian_Method.html#apsim-as-a-prior-moment-sequence",
+    "href": "08.Bayesian_Method.html#apsim-as-a-prior-moment-sequence",
+    "title": "8  Bayesian Method",
+    "section": "8.1 2.1 APSIM as a prior moment sequence",
+    "text": "8.1 2.1 APSIM as a prior moment sequence\nFor each APSIM cell and rate \\(N\\):\n\nmultiple weather-year simulations produce a distribution of yields\n\nwe compute:\n\n\\[\n\\mu_{1,0}(N),\\quad\n\\mu_{2,0}(N),\\quad\n\\mu_{3,0}(N)\n\\]\nThese represent the farmer’s prior belief about yield at rate \\(N\\):\na smooth, agronomically coherent curve shaped by water stress, mineralization, and APSIM physics.\nAPSIM provides:\n\nplausible curvature,\n\ndiminishing returns to nitrogen,\n\nrealistic year-to-year variance.\n\nBut it may misalign with a field’s yield level or responsiveness.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>Bayesian Method</span>"
+    ]
+  },
+  {
+    "objectID": "08.Bayesian_Method.html#ofpe-as-noisy-sample-moments",
+    "href": "08.Bayesian_Method.html#ofpe-as-noisy-sample-moments",
+    "title": "8  Bayesian Method",
+    "section": "8.2 2.2 OFPE as noisy sample moments",
+    "text": "8.2 2.2 OFPE as noisy sample moments\nFor each field-year and OFPE cluster (strip) at nitrogen rate \\(N\\):\n\nthe raw OFPE observations yield:\n\n\\[\n\\bar{Y}(N),\\qquad s^2(N),\\qquad m_3(N),\n\\]\nwith \\(n(N)\\) observations in that cluster.\nThese moments reflect one realized season, containing:\n\nidiosyncratic weather shocks,\n\nfield-specific soil micro-variability,\n\nmeasurement noise.\n\nThus OFPE provides field-specific but imprecise evidence.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>Bayesian Method</span>"
+    ]
+  },
+  {
+    "objectID": "08.Bayesian_Method.html#posterior-mean",
+    "href": "08.Bayesian_Method.html#posterior-mean",
+    "title": "8  Bayesian Method",
+    "section": "8.3 3.1 Posterior mean",
+    "text": "8.3 3.1 Posterior mean\nPosterior expected yield is a precision-weighted average:\n\\[\n\\mu_{1,\\text{post}}(N)\n=\n\\frac{\n  \\tau_0(N) \\mu_{1,0}(N)\n  +\n  \\tau_d(N)\\bar{Y}(N)\n}{\n  \\tau_0(N) + \\tau_d(N)\n}.\n\\]\nThis exhibits classical Bayesian shrinkage:\n\nWhen OFPE is noisy (\\(n\\) small, \\(s^2\\) large), the posterior relies more heavily on APSIM.\n\nWhen OFPE is dense and consistent, the posterior moves toward the sample mean.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>Bayesian Method</span>"
+    ]
+  },
+  {
+    "objectID": "08.Bayesian_Method.html#posterior-variance",
+    "href": "08.Bayesian_Method.html#posterior-variance",
+    "title": "8  Bayesian Method",
+    "section": "8.4 3.2 Posterior variance",
+    "text": "8.4 3.2 Posterior variance\nPosterior precision is additive:\n\\[\n\\tau_{\\text{post}}(N) = \\tau_0(N) + \\tau_d(N),\n\\]\nwith variance:\n\\[\n\\mu_{2,\\text{post}}(N) = \\frac{1}{\\tau_{\\text{post}}(N)}.\n\\]\nPosterior uncertainty is always lower than either source alone,\nreflecting the information gain from combining two signals.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>Bayesian Method</span>"
+    ]
+  },
+  {
+    "objectID": "08.Bayesian_Method.html#posterior-skewness-third-moment",
+    "href": "08.Bayesian_Method.html#posterior-skewness-third-moment",
+    "title": "8  Bayesian Method",
+    "section": "8.5 3.3 Posterior skewness (third moment)",
+    "text": "8.5 3.3 Posterior skewness (third moment)\nOFPE provides extremely noisy estimates of skewness.\nTherefore we adopt a prior-dominant update:\n\\[\n\\mu_{3,\\text{post}}(N) = \\mu_{3,0}(N),\n\\]\nretaining agronomic structure encoded in APSIM.",
+    "crumbs": [
+      "Bayesian-Hierarchical Analysis (2025)",
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>Bayesian Method</span>"
     ]
   }
 ]

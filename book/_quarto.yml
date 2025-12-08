@@ -17,9 +17,9 @@ book:
 
     - part: "Bayesian-Hierarchical Analysis (2025)"
       chapters:
-        - 06.Bayesian_priors_APSIM.Rmd
-        - 07.Bayesian_update.Rmd
-        - 08.Bayesian_posterior.Rmd
+        - 06.Bayesian_Overview.Rmd
+        - 07.Bayesian_Framework.Rmd
+        - 08.Bayesian_Method.Rmd
 
 format:
   html:

@@ -1,0 +1,471 @@
+---
+title: "3g. Bayesian Evaluation: Regret and N-rule Comparisons"
+author: "Jaeseok Hwang"
+format:
+  html:
+    toc: true
+    code-fold: true
+execute:
+  echo: true
+  warning: true
+  message: true
+---
+
+
+# Set up 
+```{r setup}
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(ggplot2)
+library(readr)
+library(here)
+library(gt)
+
+analysis_dir    <- here("Data","Processed","Analysis_ready")
+apsim_ready_dir <- here("Data","Processed","APSIP_compare_ready")
+
+normalize_region <- function(x) sub("^[0-9]+-", "", x)
+region_levels <- c("North","Central","South")
+
+```
+
+# -------------------------------------------------------------------
+# Load evaluation + meta objects
+# -------------------------------------------------------------------
+
+```{r load}
+
+# Field meta (for farm/field/year labels)
+field_loc2 <- readRDS(file.path(analysis_dir, "field_loc2.rds"))
+
+# Mapping ffy_id → region (from APSIM cells)
+ofpe_il_cells <- readRDS(
+  file.path(apsim_ready_dir, "ofpe_il_cells.rds")
+) %>%
+  mutate(region = normalize_region(region))
+
+# Optimal N rules from 3e (prior / OFPE / posterior optimal N)
+opt_N_il <- readRDS(
+  file.path(apsim_ready_dir, "opt_N_prior_ofpe_post_il.rds")
+)
+
+# Year1→Year2 evaluation table from 3f
+pair_eval_il <- readRDS(
+  file.path(apsim_ready_dir, "pair_eval_il.rds")
+)
+
+# Posterior moment table (just in case we want region info)
+bayes_moments_il <- readRDS(
+  file.path(apsim_ready_dir, "bayes_moments_il.rds")
+)
+
+# MBME posterior densities (not used directly here, but loaded for completeness)
+mbme_post_il <- readRDS(
+  file.path(apsim_ready_dir, "mbme_posterior_yield_density_il.rds")
+)
+
+# Consistent region formatting
+ofpe_il_cells <- ofpe_il_cells %>%
+  mutate(
+    region = normalize_region(region),
+    region = factor(region, levels = region_levels)
+  )
+
+bayes_moments_il <- bayes_moments_il %>%
+  mutate(
+    region = normalize_region(region),
+    region = factor(region, levels = region_levels)
+  )
+
+```
+
+
+# Attach region to the Year1→Year2 evaluation table
+
+```{r attach region}
+
+# Attach region using Year1 field-year (ffy_id1)
+
+pair_eval_il_reg <- pair_eval_il %>%
+left_join(
+ofpe_il_cells %>%
+distinct(ffy_id, region),
+by = c("ffy_id1" = "ffy_id")
+) %>%
+mutate(
+region = normalize_region(region),
+region = factor(region, levels = region_levels)
+)
+
+# Quick sanity check
+
+pair_eval_il_reg %>%
+group_by(region) %>%
+summarise(
+n_pairs = n(),
+n_valid = sum(is.finite(regret_post)),
+.groups = "drop"
+)
+
+```
+
+# Summary table: mean regret by rule and region
+
+```{r summary table}
+
+regret_summary_region <- pair_eval_il_reg %>%
+filter(is.finite(regret_post)) %>%
+group_by(region) %>%
+summarise(
+n_pairs = n(),
+mean_regret_prior = mean(regret_prior, na.rm = TRUE),
+mean_regret_ofpe = mean(regret_ofpe, na.rm = TRUE),
+mean_regret_post = mean(regret_post, na.rm = TRUE),
+.groups = "drop"
+)
+
+regret_summary_region_gt <- regret_summary_region %>%
+gt() %>%
+tab_header(
+title = "Average regret on Year2 profit by region and N-rule",
+subtitle = "Regret = ex-post optimal profit − rule-based profit (Year2 OFPE curve)"
+) %>%
+fmt_number(
+columns = c(mean_regret_prior, mean_regret_ofpe, mean_regret_post),
+decimals = 2
+) %>%
+fmt_number(
+columns = n_pairs,
+decimals = 0
+) %>%
+cols_label(
+region = "Region",
+n_pairs = "Number of field-pairs",
+mean_regret_prior = "Mean regret: APSIM prior rule",
+mean_regret_ofpe = "Mean regret: OFPE-only rule",
+mean_regret_post = "Mean regret: Posterior rule"
+)
+
+regret_summary_region_gt
+
+Also overall averages (no region breakdown) if you want a simple one-line message
+
+regret_summary_overall <- pair_eval_il_reg %>%
+filter(is.finite(regret_post)) %>%
+summarise(
+n_pairs = n(),
+mean_regret_prior = mean(regret_prior, na.rm = TRUE),
+mean_regret_ofpe = mean(regret_ofpe, na.rm = TRUE),
+mean_regret_post = mean(regret_post, na.rm = TRUE)
+)
+
+regret_summary_overall
+
+
+```
+
+
+# Boxplots: distribution of regret by rule and region
+
+```{r boxplot}
+regret_long <- pair_eval_il_reg %>%
+filter(is.finite(regret_post)) %>%
+select(region, regret_prior, regret_ofpe, regret_post) %>%
+pivot_longer(
+cols = starts_with("regret_"),
+names_to = "rule",
+values_to = "regret"
+) %>%
+mutate(
+rule = recode(
+rule,
+regret_prior = "APSIM prior rule",
+regret_ofpe = "OFPE-only rule",
+regret_post = "Posterior rule"
+),
+rule = factor(
+rule,
+levels = c("APSIM prior rule", "OFPE-only rule", "Posterior rule")
+)
+)
+
+ggplot(regret_long, aes(x = rule, y = regret)) +
+geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+geom_boxplot(outlier.alpha = 0.2, width = 0.6) +
+facet_wrap(~ region, nrow = 1) +
+labs(
+x = NULL,
+y = "Regret (USD/ac)",
+title = "Distribution of regret on Year2 profit by rule and region",
+subtitle = "Regret = ex-post optimal profit − profit under N-rule, evaluated on Year2 OFPE curve"
+) +
+theme_minimal(base_size = 11) +
+theme(
+legend.position = "none",
+strip.text = element_text(size = 10)
+)
+
+ggsave(
+filename = file.path(
+apsim_ready_dir,
+"regret_boxplot_by_rule_region.pdf"
+),
+width = 8,
+height = 4,
+units = "in"
+)
+
+```
+
+# How do N recommendations move? (Prior → OFPE → Posterior)
+- figure shows how much the posterior moves away from APSIM prior and towards OFPE, and whether it stabilizes.
+
+```{r posterior moves}
+
+N_shift_long <- pair_eval_il_reg %>%
+filter(is.finite(regret_post)) %>%
+select(farm, field, year1, region,
+N_prior1, N_ofpe1, N_post1) %>%
+pivot_longer(
+cols = c(N_prior1, N_ofpe1, N_post1),
+names_to = "rule",
+values_to = "N_rule"
+) %>%
+mutate(
+rule = recode(
+rule,
+N_prior1 = "APSIM prior rule",
+N_ofpe1 = "OFPE-only rule",
+N_post1 = "Posterior rule"
+),
+rule = factor(
+rule,
+levels = c("APSIM prior rule", "OFPE-only rule", "Posterior rule")
+)
+)
+
+# Density plot of N rules by region
+
+ggplot(N_shift_long, aes(x = N_rule, fill = rule)) +
+geom_density(alpha = 0.4) +
+facet_wrap(~ region, nrow = 1, scales = "free_y") +
+labs(
+x = "N rate (lb/ac) chosen in Year1",
+y = "Density",
+fill = "Rule",
+title = "Distribution of N recommendations by rule and region (Year1)"
+) +
+theme_minimal(base_size = 11)
+
+ggsave(
+filename = file.path(
+apsim_ready_dir,
+"N_rule_density_by_region.pdf"
+),
+width = 8,
+height = 4,
+units = "in"
+)
+
+# Pairwise scatter: prior vs posterior, OFPE vs posterior
+
+ggplot(
+N_shift_long %>%
+select(farm, field, year1, region, rule, N_rule) %>%
+pivot_wider(
+names_from = rule,
+values_from = N_rule
+),
+aes(x = APSIM prior rule, y = Posterior rule, color = region)
+) +
+geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+geom_point(alpha = 0.7) +
+labs(
+x = "N from APSIM prior rule (lb/ac)",
+y = "N from Posterior rule (lb/ac)",
+color = "Region",
+title = "How much does the posterior N move away from APSIM prior?"
+) +
+theme_minimal(base_size = 11)
+
+ggsave(
+filename = file.path(
+apsim_ready_dir,
+"N_prior_vs_posterior_scatter.pdf"
+),
+width = 5,
+height = 4,
+units = "in"
+)
+
+ggplot(
+N_shift_long %>%
+select(farm, field, year1, region, rule, N_rule) %>%
+pivot_wider(
+names_from = rule,
+values_from = N_rule
+),
+aes(x = OFPE-only rule, y = Posterior rule, color = region)
+) +
+geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+geom_point(alpha = 0.7) +
+labs(
+x = "N from OFPE-only rule (lb/ac)",
+y = "N from Posterior rule (lb/ac)",
+color = "Region",
+title = "Is the posterior still close to the OFPE-only N?"
+) +
+theme_minimal(base_size = 11)
+
+ggsave(
+filename = file.path(
+apsim_ready_dir,
+"N_ofpe_vs_posterior_scatter.pdf"
+),
+width = 5,
+height = 4,
+units = "in"
+)
+
+
+```
+
+
+# Example field: Year1 rules and Year2 profit curve
+- This is a nice “didactic” figure for the chapter: 
+- show one farm–field where you plot the Year2 profit curve and mark the three N rules.
+
+```{r replicate trial results}
+
+fit_year2_curve <- function(ffy_id2, df_moments) {
+df2 <- df_moments %>%
+filter(ffy_id == ffy_id2)
+
+if (nrow(df2) < 3 || all(!is.finite(df2$mu1))) {
+return(NULL)
+}
+
+tryCatch(
+{
+model <- lm(mu1 ~ poly(N_fert, 2, raw = TRUE), data = df2)
+list(
+model = model,
+N_min = min(df2$N_fert, na.rm = TRUE),
+N_max = max(df2$N_fert, na.rm = TRUE)
+)
+},
+error = function(e) NULL
+)
+}
+
+yield_at <- function(model, N_vec) {
+predict(model, newdata = data.frame(N_fert = N_vec))
+}
+
+profit_at <- function(Y, N, p_yield = 5, p_N = 0.9) {
+p_yield * Y - p_N * N
+}
+
+# Prepare Year2 OFPE moments (as in 3f)
+
+ofpe_moments_il2 <- readRDS(
+file.path(apsim_ready_dir, "ofpe_moments_il.rds")
+) %>%
+mutate(
+N_fert = N_target,
+mu1 = Y_ofpe_mean
+)
+
+# Pick one example pair with valid regrets
+
+example_pair <- pair_eval_il_reg %>%
+filter(is.finite(regret_post)) %>%
+slice(1)
+
+example_pair
+
+ffy_id2_ex <- example_pair$ffy_id2
+farm_ex <- example_pair$farm
+field_ex <- example_pair$field
+year1_ex <- example_pair$year1
+year2_ex <- example_pair$year2
+region_ex <- example_pair$region
+
+fit_ex <- fit_year2_curve(ffy_id2_ex, df_moments = ofpe_moments_il2)
+
+if (!is.null(fit_ex)) {
+
+N_min2 <- fit_ex$N_min
+N_max2 <- fit_ex$N_max
+model2 <- fit_ex$model
+
+grid for Year2 profit curve
+
+N_seq <- seq(N_min2, N_max2, length.out = 200)
+Y_seq <- yield_at(model2, N_seq)
+pi_seq <- profit_at(Y_seq, N_seq, p_yield = 5, p_N = 0.9)
+
+df_curve <- tibble(
+N_fert = N_seq,
+Y = Y_seq,
+profit = pi_seq
+)
+
+# Points for the three rules
+
+N_prior2 <- example_pair$N_prior2
+N_ofpe2 <- example_pair$N_ofpe2
+N_post2 <- example_pair$N_post2
+
+df_rules <- tibble(
+rule = c("APSIM prior rule", "OFPE-only rule", "Posterior rule"),
+N = c(N_prior2, N_ofpe2, N_post2)
+) %>%
+mutate(
+Y = yield_at(model2, N),
+profit = profit_at(Y, N, p_yield = 5, p_N = 0.9)
+)
+
+ggplot(df_curve, aes(x = N_fert, y = profit)) +
+geom_line(color = "grey40", linewidth = 1) +
+geom_point(
+data = df_rules,
+aes(x = N, y = profit, color = rule),
+size = 2
+) +
+scale_color_manual(
+values = c(
+"APSIM prior rule" = "red",
+"OFPE-only rule" = "black",
+"Posterior rule" = "#1f78b4"
+)
+) +
+labs(
+x = "N rate (lb/ac)",
+y = "Profit on Year2 (USD/ac)",
+color = NULL,
+title = paste0(
+"Year2 profit curve and N rules: Farm ", farm_ex,
+", Field ", field_ex,
+" (", year1_ex, "→", year2_ex, ", ", region_ex, ")"
+)
+) +
+theme_minimal(base_size = 11) +
+theme(
+legend.position = "bottom"
+)
+
+ggsave(
+filename = file.path(
+apsim_ready_dir,
+"example_field_profit_curve_rules.pdf"
+),
+width = 7,
+height = 5,
+units = "in"
+)
+}
+
+```

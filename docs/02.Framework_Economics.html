@@ -248,20 +248,20 @@ window.Quarto = {
       <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 show">  
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="./06.Bayesian_priors_APSIM.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text">(PART) Bayesian-Hierarchical analysis (2025)</span></a>
+  <a href="./06.Bayesian_Overview.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">Overview(Bayesian)</span></span></a>
   </div>
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="./07.Bayesian_update.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text">(PART) Bayesian-Hierarchical analysis (2025)</span></a>
+  <a href="./07.Bayesian_Framework.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">7</span>&nbsp; <span class="chapter-title">Bayesian Framework</span></span></a>
   </div>
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="./08.Bayesian_posterior.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text">(PART) Bayesian-Hierarchical analysis (2025)</span></a>
+  <a href="./08.Bayesian_Method.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">8</span>&nbsp; <span class="chapter-title">Bayesian Method</span></span></a>
   </div>
 </li>
       </ul>
@@ -309,8 +309,8 @@ window.Quarto = {
 
 <section id="motivation-and-role-of-information" class="level2 unnumbered">
 <h2 class="unnumbered anchored" data-anchor-id="motivation-and-role-of-information">1. Motivation and Role of Information</h2>
-<p>On-farm experiments (OFEs) have long been a cornerstone of agronomic research, providing structured, randomized trials to estimate crop yield responses to key inputs such as nitrogen (N). Their small plot size, however, limits the ability to capture spatial heterogeneity, which can bias estimates of the Economic Optimum Nitrogen Rate (EONR) when field variability is ignored <span class="citation" data-cites="bullock2009value anselin2004spatial">(<a href="#ref-bullock2009value" role="doc-biblioref">Bullock et al. 2009</a>; <a href="#ref-anselin2004spatial" role="doc-biblioref">Anselin, Bongiovanni, and Lowenberg-DeBoer 2004</a>)</span>.</p>
-<p>The emergence of On-Farm Precision Experiments (OFPEs) offers a scalable alternative. Using GPS-guided machinery, OFPEs introduce variable-rate nitrogen treatments across entire commercial fields, generating large spatial datasets that better reflect realistic production environments <span class="citation" data-cites="bullock2019data gebbers2010precision">(<a href="#ref-bullock2019data" role="doc-biblioref">Bullock et al. 2019</a>; <a href="#ref-gebbers2010precision" role="doc-biblioref">Gebbers and Adamchuk 2010</a>)</span>. Yet, this approach introduces new costs and risks for growers. Testing extreme N rates—particularly low or unprofitable levels—can expose farmers to revenue losses <span class="citation" data-cites="de2023predicting">(<a href="#ref-de2023predicting" role="doc-biblioref">Lara et al. 2023</a>)</span>, and multi-year replication is often required to capture the agronomic interactions between nitrogen, soil, and weather.</p>
+<p>On-farm experiments (OFEs) have long been a cornerstone of agronomic research, providing structured, randomized trials to estimate crop yield responses to key inputs such as nitrogen (N). Their small plot size, however, limits the ability to capture spatial heterogeneity, which can bias estimates of the Economic Optimum Nitrogen Rate (EONR) when field variability is ignored <span class="citation" data-cites="bullock2009value anselin2004spatial">(<a href="#ref-bullock2009value" role="doc-biblioref">D. S. Bullock et al. 2009</a>; <a href="#ref-anselin2004spatial" role="doc-biblioref">Anselin, Bongiovanni, and Lowenberg-DeBoer 2004</a>)</span>.</p>
+<p>The emergence of On-Farm Precision Experiments (OFPEs) offers a scalable alternative. Using GPS-guided machinery, OFPEs introduce variable-rate nitrogen treatments across entire commercial fields, generating large spatial datasets that better reflect realistic production environments <span class="citation" data-cites="bullock2019data gebbers2010precision">(<a href="#ref-bullock2019data" role="doc-biblioref">D. Bullock and al. 2019</a>; <a href="#ref-gebbers2010precision" role="doc-biblioref">Gebbers and Adamchuk 2010</a>)</span>. Yet, this approach introduces new costs and risks for growers. Testing extreme N rates—particularly low or unprofitable levels—can expose farmers to revenue losses <span class="citation" data-cites="de2023predicting">(<a href="#ref-de2023predicting" role="doc-biblioref">Jong 2023</a>)</span>, and multi-year replication is often required to capture the agronomic interactions between nitrogen, soil, and weather.</p>
 <p>These constraints raise the central question of this study:</p>
 <p><strong>Can multi-field OFPE data provide decision-relevant information for fields where no direct OFPE has been conducted?</strong></p>
 <p>If so, OFPE data could generate <strong>positive externalities</strong>, enabling farmers to benefit from trials done on other fields. This would be especially valuable in the U.S. Corn Belt, where growers manage large areas but face logistical, financial, and risk-related barriers to running their own OFPEs.</p>
@@ -319,7 +319,7 @@ window.Quarto = {
 </section>
 <section id="yield-response-and-the-information-structure" class="level2 unnumbered">
 <h2 class="unnumbered anchored" data-anchor-id="yield-response-and-the-information-structure">2. Yield Response and the Information Structure</h2>
-<p>Following <span class="citation" data-cites="bullock2009value">Bullock et al. (<a href="#ref-bullock2009value" role="doc-biblioref">2009</a>)</span>, crop yield <span class="math inline">\(y\)</span> is modeled as:</p>
+<p>Following <span class="citation" data-cites="bullock2009value">D. S. Bullock et al. (<a href="#ref-bullock2009value" role="doc-biblioref">2009</a>)</span>, crop yield <span class="math inline">\(y\)</span> is modeled as:</p>
 <p><span id="eq-yield"><span class="math display">\[
 y = f(\mathbf{x}, \mathbf{c}, \mathbf{z})
 \tag{2.1}\]</span></span></p>
@@ -468,20 +468,20 @@ EONR_d is constructed ex post using GAM-based yield–N curves fitted to each fi
 <div id="ref-anselin2004spatial" class="csl-entry" role="listitem">
 Anselin, Luc, Rodolfo Bongiovanni, and Jess Lowenberg-DeBoer. 2004. <span>“A Spatial Econometric Approach to the Economics of Site-Specific Nitrogen Management in Corn Production.”</span> <em>American Journal of Agricultural Economics</em> 86 (3): 675–87.
 </div>
-<div id="ref-bullock2019data" class="csl-entry" role="listitem">
-Bullock, David S, Maria Boerngen, Haiying Tao, Bruce Maxwell, Joe D Luck, Luciano Shiratsuchi, Laila Puntel, and Nicolas F Martin. 2019. <span>“The Data-Intensive Farm Management Project: Changing Agronomic Research Through on-Farm Precision Experimentation.”</span> <em>Agronomy Journal</em> 111 (6): 2736–46.
-</div>
 <div id="ref-bullock2009value" class="csl-entry" role="listitem">
 Bullock, David S, Matı́as L Ruffo, Donald G Bullock, and Germán A Bollero. 2009. <span>“The Value of Variable Rate Technology: An Information-Theoretic Approach.”</span> <em>American Journal of Agricultural Economics</em> 91 (1): 209–23.
+</div>
+<div id="ref-bullock2019data" class="csl-entry" role="listitem">
+Bullock, DS, and et al. 2019. <span>“Data-Intensive Farm Management for Precision Agriculture.”</span> <em>Applied Economic Perspectives and Policy</em>.
 </div>
 <div id="ref-gebbers2010precision" class="csl-entry" role="listitem">
 Gebbers, Robin, and Viacheslav I Adamchuk. 2010. <span>“Precision Agriculture and Food Security.”</span> <em>Science</em> 327 (5967): 828–31.
 </div>
+<div id="ref-de2023predicting" class="csl-entry" role="listitem">
+Jong, et al. de. 2023. <span>“Predicting Yield Response from on-Farm Trials.”</span> <em>Agricultural Systems</em>.
+</div>
 <div id="ref-laffont1989economie" class="csl-entry" role="listitem">
 Laffont, Jean-Jacques. 1989. <em>Economie de l’incertain Et de l’information</em>. MIT press.
-</div>
-<div id="ref-de2023predicting" class="csl-entry" role="listitem">
-Lara, Alfonso de, Taro Mieno, Joe D Luck, and Laila A Puntel. 2023. <span>“Predicting Site-Specific Economic Optimal Nitrogen Rate Using Machine Learning Methods and on-Farm Precision Experimentation.”</span> <em>Precision Agriculture</em>, 1–21.
 </div>
 <div id="ref-wood2017generalized" class="csl-entry" role="listitem">
 Wood, Simon N. 2017. <em>Generalized Additive Models: An Introduction with r</em>. Chapman; Hall/CRC.

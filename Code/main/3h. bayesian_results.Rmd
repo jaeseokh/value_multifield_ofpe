@@ -1,0 +1,445 @@
+---
+title: "3h. Main Results: APSIM Prior vs OFPE vs Bayesian Posterior"
+author: "Jaeseok Hwang"
+format:
+  html:
+    toc: true
+    code-fold: true
+execute:
+  echo: true
+  warning: true
+  message: true
+---
+
+
+# Set up 
+```{r setup}
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(here)
+library(ggplot2)
+library(gt)
+library(patchwork)
+
+analysis_dir    <- here("Data","Processed","Analysis_ready")
+apsim_ready_dir <- here("Data","Processed","APSIP_compare_ready")
+
+normalize_region <- function(x) sub("^[0-9]+-", "", x)
+region_levels <- c("North","Central","South")
+
+# main object: posterior + prior + OFPE moments by (ffy_id, N_fert)
+bayes_moments_il <- readRDS(
+  file.path(apsim_ready_dir, "bayes_moments_il.rds")
+)
+
+# posterior full densities (MBME) – used only for one example figure
+mbme_post_il <- readRDS(
+  file.path(apsim_ready_dir, "mbme_posterior_yield_density_il.rds")
+)
+
+bayes_moments_il <- bayes_moments_il %>%
+  mutate(
+    region = normalize_region(region),
+    region = factor(region, levels = region_levels)
+  )
+
+glimpse(bayes_moments_il)
+
+
+```
+
+# -------------------------------------------------------------------
+# Construct within-field optimal $N$ and regret
+# -------------------------------------------------------------------
+
+```{r within-field opt}
+
+
+choose_opt_N <- function(df, mean_col) {
+m <- rlang::sym(mean_col)
+df %>%
+dplyr::filter(is.finite(!!m)) %>%
+dplyr::slice_max(order_by = !!m, n = 1, with_ties = FALSE) %>%
+dplyr::select(N_fert, !!m)
+}
+
+# evaluate OFPE "true" curve at a chosen N (nearest available N_fert)
+
+eval_ofpe_at_N <- function(df, N_star) {
+if (is.na(N_star) || nrow(df) == 0) return(NA_real_)
+j <- which.min(abs(df$N_fert - N_star))
+df$mu1_ofpe[j]
+}
+
+stopifnot(all(c("ffy_id","farm","field","year","region",
+"N_fert","mu1_ofpe","m1_prior","mu1_post") %in%
+names(bayes_moments_il)))
+
+Build per-field decision table
+
+opt_rules_il <- bayes_moments_il %>%
+dplyr::group_by(ffy_id, farm, field, year, region) %>%
+dplyr::group_modify(~{
+df <- .x
+
+# true optimum (OFPE mean)
+opt_true  <- choose_opt_N(df, "mu1_ofpe")
+
+# rule-specific optima
+opt_prior <- choose_opt_N(df, "m1_prior")
+opt_ofpe  <- choose_opt_N(df, "mu1_ofpe")
+opt_post  <- choose_opt_N(df, "mu1_post")
+
+# Evaluate "true" OFPE mean at each rule's N (nearest N_fert)
+Y_true_opt   <- opt_true$mu1_ofpe[1]
+Y_prior_eval <- eval_ofpe_at_N(df, opt_prior$N_fert[1])
+Y_ofpe_eval  <- eval_ofpe_at_N(df, opt_ofpe$N_fert[1])
+Y_post_eval  <- eval_ofpe_at_N(df, opt_post$N_fert[1])
+
+tibble::tibble(
+  N_opt_true   = opt_true$N_fert[1],
+  Y_true_opt   = Y_true_opt,
+
+  N_opt_prior  = opt_prior$N_fert[1],
+  Y_ofpe_at_prior = Y_prior_eval,
+
+  N_opt_ofpe   = opt_ofpe$N_fert[1],
+  Y_ofpe_at_ofpe  = Y_ofpe_eval,
+
+  N_opt_post   = opt_post$N_fert[1],
+  Y_ofpe_at_post  = Y_post_eval
+) %>%
+  mutate(
+    regret_prior = Y_true_opt - Y_ofpe_at_prior,
+    regret_ofpe  = Y_true_opt - Y_ofpe_at_ofpe,
+    regret_post  = Y_true_opt - Y_ofpe_at_post
+  )
+
+}) %>%
+dplyr::ungroup()
+
+glimpse(opt_rules_il)
+
+opt_rules_il %>%
+summarise(
+n_fields = dplyr::n(),
+min_regret_prior = min(regret_prior, na.rm = TRUE),
+max_regret_prior = max(regret_prior, na.rm = TRUE)
+)
+```
+
+
+# Region-level regret summary table
+
+```{r region summary}
+
+#Long format for summarizing & plotting later
+
+regret_long <- opt_rules_il %>%
+dplyr::select(ffy_id, farm, field, year, region,
+regret_prior, regret_ofpe, regret_post) %>%
+tidyr::pivot_longer(
+cols = starts_with("regret_"),
+names_to = "rule",
+values_to = "regret_bu"
+) %>%
+mutate(
+rule = dplyr::recode(
+rule,
+regret_prior = "APSIM prior",
+regret_ofpe = "OFPE only",
+regret_post = "Bayesian posterior"
+),
+rule = factor(rule, levels = c("APSIM prior","OFPE only","Bayesian posterior")),
+region = droplevels(region)
+)
+
+region_regret_summary <- regret_long %>%
+dplyr::group_by(region, rule) %>%
+dplyr::summarise(
+n_fields = dplyr::n(),
+mean_regret = mean(regret_bu, na.rm = TRUE),
+median_regret = median(regret_bu, na.rm = TRUE),
+p90_regret = quantile(regret_bu, 0.9, na.rm = TRUE),
+.groups = "drop"
+)
+
+region_regret_summary_gt <- region_regret_summary %>%
+gt(rowname_col = "rule", groupname_col = "region") %>%
+tab_header(
+title = "Region-level yield regret (bu/ac) by decision rule"
+) %>%
+fmt_number(
+columns = c(mean_regret, median_regret, p90_regret),
+decimals = 2
+) %>%
+fmt_number(
+columns = n_fields,
+decimals = 0
+) %>%
+cols_label(
+n_fields = "N fields",
+mean_regret = "Mean regret",
+median_regret = "Median",
+p90_regret = "90th pct."
+)
+
+region_regret_summary_gt
+
+# Save summary as CSV for later use if needed
+
+readr::write_csv(
+region_regret_summary,
+file.path(apsim_ready_dir, "region_regret_summary_il.csv")
+)
+
+```
+
+# Boxplots of regret by rule and region
+```{r boxplot}
+
+p_regret_box <- ggplot(regret_long,
+aes(x = rule, y = regret_bu, fill = rule)) +
+geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+geom_boxplot(outlier.alpha = 0.2, width = 0.7) +
+facet_wrap(~ region, nrow = 1, scales = "free_y") +
+scale_fill_manual(
+values = c(
+"APSIM prior" = "#e41a1c",
+"OFPE only" = "#377eb8",
+"Bayesian posterior" = "#4daf4a"
+)
+) +
+labs(
+x = NULL,
+y = "Regret (bu/ac; relative to OFPE optimum)",
+fill = NULL,
+title = "Distribution of yield regret by region and decision rule"
+) +
+theme_minimal(base_size = 11) +
+theme(
+legend.position = "bottom",
+strip.text = element_text(size = 10)
+)
+
+p_regret_box
+
+ggsave(
+filename = file.path(
+apsim_ready_dir,
+"regret_boxplots_by_region_rule_il.pdf"
+),
+plot = p_regret_box,
+width = 8,
+height = 4,
+units = "in"
+)
+
+```
+
+
+# How much does the Bayesian rule move $N$?
+
+```{r bayesian update of N}
+
+
+delta_N <- opt_rules_il %>%
+mutate(
+dN_post_minus_prior = N_opt_post - N_opt_prior,
+dN_post_minus_ofpe = N_opt_post - N_opt_ofpe
+)
+
+N_shift_summary <- delta_N %>%
+group_by(region) %>%
+summarise(
+n_fields = n(),
+mean_dN_post_minus_prior = mean(dN_post_minus_prior, na.rm = TRUE),
+mean_dN_post_minus_ofpe = mean(dN_post_minus_ofpe, na.rm = TRUE),
+sd_dN_post_minus_prior = sd(dN_post_minus_prior, na.rm = TRUE),
+sd_dN_post_minus_ofpe = sd(dN_post_minus_ofpe, na.rm = TRUE),
+.groups = "drop"
+)
+
+N_shift_summary_gt <- N_shift_summary %>%
+gt(rowname_col = "region") %>%
+tab_header(
+title = "Average change in N recommendation (posterior vs prior / OFPE)"
+) %>%
+fmt_number(
+columns = c(mean_dN_post_minus_prior, mean_dN_post_minus_ofpe,
+sd_dN_post_minus_prior, sd_dN_post_minus_ofpe),
+decimals = 1
+) %>%
+cols_label(
+n_fields = "N fields",
+mean_dN_post_minus_prior = "E[N_post − N_prior] (lb/ac)",
+mean_dN_post_minus_ofpe = "E[N_post − N_OFPE] (lb/ac)",
+sd_dN_post_minus_prior = "SD[N_post − N_prior]",
+sd_dN_post_minus_ofpe = "SD[N_post − N_OFPE]"
+)
+
+N_shift_summary_gt
+
+# Simple scatter plots: posterior vs prior / OFPE N
+
+p_post_vs_prior <- ggplot(opt_rules_il,
+aes(x = N_opt_prior, y = N_opt_post, color = region)) +
+geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+geom_point(alpha = 0.7, size = 1.5) +
+labs(
+x = "APSIM-optimal N (lb/ac)",
+y = "Posterior-optimal N (lb/ac)",
+color = "Region",
+title = "Posterior vs APSIM prior N recommendations"
+) +
+theme_minimal(base_size = 11) +
+theme(legend.position = "bottom")
+
+p_post_vs_ofpe <- ggplot(opt_rules_il,
+aes(x = N_opt_ofpe, y = N_opt_post, color = region)) +
+geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+geom_point(alpha = 0.7, size = 1.5) +
+labs(
+x = "OFPE-optimal N (lb/ac)",
+y = "Posterior-optimal N (lb/ac)",
+color = "Region",
+title = "Posterior vs OFPE-only N recommendations"
+) +
+theme_minimal(base_size = 11) +
+theme(legend.position = "bottom")
+
+(p_post_vs_prior | p_post_vs_ofpe) +
+plot_annotation(
+title = "How the Bayesian posterior adjusts N recommendations"
+)
+
+ggsave(
+filename = file.path(
+apsim_ready_dir,
+"N_post_vs_prior_ofpe_scatter_il.pdf"
+),
+plot = (p_post_vs_prior | p_post_vs_ofpe),
+width = 10,
+height = 4,
+units = "in"
+)
+```
+
+# Example field: profit curve and N rules (illustrative)
+
+```{r profit curves}
+
+# choose one field-year with reasonably rich N variation
+
+example_ffy <- bayes_moments_il %>%
+group_by(ffy_id, farm, field, year, region) %>%
+summarise(n_N = n_distinct(N_fert), .groups = "drop") %>%
+filter(n_N >= 4) %>%
+slice(1) %>%
+pull(ffy_id)
+
+example_ffy
+
+df_ex <- bayes_moments_il %>%
+filter(ffy_id == example_ffy) %>%
+arrange(N_fert)
+
+recompute field-level optima for this example (to display lines)
+
+opt_ex <- opt_rules_il %>% filter(ffy_id == example_ffy)
+
+p_example <- ggplot(df_ex, aes(x = N_fert)) +
+geom_line(aes(y = m1_prior, color = "APSIM prior"), linewidth = 0.9) +
+geom_line(aes(y = mu1_ofpe, color = "OFPE mean"), linewidth = 0.9) +
+geom_line(aes(y = mu1_post, color = "Posterior"), linewidth = 1.1) +
+geom_vline(
+data = opt_ex,
+aes(xintercept = N_opt_prior, color = "APSIM prior"),
+linetype = "dashed"
+) +
+geom_vline(
+data = opt_ex,
+aes(xintercept = N_opt_ofpe, color = "OFPE mean"),
+linetype = "dashed"
+) +
+geom_vline(
+data = opt_ex,
+aes(xintercept = N_opt_post, color = "Posterior"),
+linetype = "dashed"
+) +
+scale_color_manual(
+values = c(
+"APSIM prior" = "#e41a1c",
+"OFPE mean" = "#377eb8",
+"Posterior" = "#4daf4a"
+)
+) +
+labs(
+x = "N rate (lb/ac)",
+y = "Mean yield (bu/ac)",
+color = NULL,
+title = paste0(
+"Example field ", example_ffy,
+": APSIM prior vs OFPE vs posterior mean curves"
+)
+) +
+theme_minimal(base_size = 11) +
+theme(legend.position = "bottom")
+
+p_example
+
+ggsave(
+filename = file.path(
+apsim_ready_dir,
+paste0("example_field_prior_ofpe_post_curve_", example_ffy, ".pdf")
+),
+plot = p_example,
+width = 7,
+height = 5,
+units = "in"
+)
+
+```
+
+
+# Example posterior yield density (MBME) at one $N$
+
+```{r posterior yield density}
+
+# pick same example field & choose a moderate N_fert
+
+df_ex_dens <- mbme_post_il %>%
+filter(ffy_id == example_ffy)
+
+N_choices <- sort(unique(df_ex_dens$N_fert))
+N_sel <- N_choices[ceiling(length(N_choices)/2)]
+
+df_ex_dens_N <- df_ex_dens %>%
+filter(N_fert == N_sel)
+
+ggplot(df_ex_dens_N, aes(x = y, y = density)) +
+geom_line(linewidth = 0.9, color = "#1f78b4") +
+labs(
+title = paste0(
+"Posterior MBME yield distribution (field ", example_ffy,
+", N = ", round(N_sel,1), " lb/ac)"
+),
+x = "Yield (bu/ac)",
+y = "Density"
+) +
+theme_minimal(base_size = 11)
+
+ggsave(
+filename = file.path(
+apsim_ready_dir,
+paste0("example_field_MBME_density_", example_ffy, "_N", round(N_sel), ".pdf")
+),
+width = 6,
+height = 4,
+units = "in"
+)
+
+
+```

@@ -1,0 +1,245 @@
+---
+title: "Bayesian Method"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: false
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# 1. Overview of the Bayesian Moment-Based Framework {-}
+
+This chapter develops the empirical machinery for combining:
+
+- **APSIM mechanistic priors**, which describe long-run biophysical nitrogen–yield patterns;  
+- **OFPE field trials**, which provide noisy but field-specific evidence for a single year.
+
+Both datasets are transformed into a common representation:  
+the **first three moments** of the yield distribution at each nitrogen rate $N$:
+
+$$
+\big( \mu_1(N),\ \mu_2(N),\ \mu_3(N) \big),
+$$
+
+where:
+
+- $\mu_1$ = mean yield  
+- $\mu_2$ = variance  
+- $\mu_3$ = third central moment (skewness component)
+
+APSIM provides an informed but non-field-specific *prior*,  
+and OFPE provides a noisy *likelihood*.  
+The combination yields a *posterior* set of moments, which feed into a  
+maximum-entropy posterior predictive distribution.
+
+---
+
+# 2. Representing APSIM and OFPE in a Common Moment Structure {-}
+
+## 2.1 APSIM as a prior moment sequence
+
+For each APSIM cell and rate $N$:
+
+- multiple weather-year simulations produce a distribution of yields  
+- we compute:
+
+$$
+\mu_{1,0}(N),\quad
+\mu_{2,0}(N),\quad
+\mu_{3,0}(N)
+$$
+
+These represent the farmer’s **prior belief** about yield at rate $N$:  
+a smooth, agronomically coherent curve shaped by water stress, mineralization, and APSIM physics.
+
+APSIM provides:
+
+- plausible curvature,  
+- diminishing returns to nitrogen,  
+- realistic year-to-year variance.
+
+But it may misalign with a field’s yield level or responsiveness.
+
+---
+
+## 2.2 OFPE as noisy sample moments
+
+For each field-year and OFPE cluster (strip) at nitrogen rate $N$:
+
+- the raw OFPE observations yield:
+
+$$
+\bar{Y}(N),\qquad s^2(N),\qquad m_3(N),
+$$
+
+with $n(N)$ observations in that cluster.
+
+These moments reflect **one realized season**, containing:
+
+- idiosyncratic weather shocks,  
+- field-specific soil micro-variability,  
+- measurement noise.
+
+Thus OFPE provides **field-specific but imprecise** evidence.
+
+---
+
+# 3. Bayesian Moment Updating: Prior → Posterior {-}
+
+The Bayesian update is conducted at each nitrogen rate $N$, using a normal–normal structure.
+
+Let:
+
+- $\mu_{1,0}(N)$, $\mu_{2,0}(N)$ = APSIM prior mean and variance  
+- $\bar{Y}(N)$, $s^2(N)$ = OFPE sample mean and variance  
+- $n(N)$ = cluster size  
+
+Define prior precision:
+
+$$
+\tau_0(N) = \frac{1}{\mu_{2,0}(N)},
+$$
+
+and data precision:
+
+$$
+\tau_d(N) = \frac{1}{s^2(N)/n(N)}.
+$$
+
+## 3.1 Posterior mean
+
+Posterior expected yield is a precision-weighted average:
+
+$$
+\mu_{1,\text{post}}(N)
+=
+\frac{
+  \tau_0(N) \mu_{1,0}(N)
+  +
+  \tau_d(N)\bar{Y}(N)
+}{
+  \tau_0(N) + \tau_d(N)
+}.
+$$
+
+This exhibits classical Bayesian shrinkage:
+
+- When OFPE is noisy ($n$ small, $s^2$ large), the posterior relies more heavily on APSIM.  
+- When OFPE is dense and consistent, the posterior moves toward the sample mean.
+
+---
+
+## 3.2 Posterior variance
+
+Posterior precision is additive:
+
+$$
+\tau_{\text{post}}(N) = \tau_0(N) + \tau_d(N),
+$$
+
+with variance:
+
+$$
+\mu_{2,\text{post}}(N) = \frac{1}{\tau_{\text{post}}(N)}.
+$$
+
+Posterior uncertainty is always lower than either source alone,  
+reflecting the information gain from combining two signals.
+
+---
+
+## 3.3 Posterior skewness (third moment)
+
+OFPE provides extremely noisy estimates of skewness.  
+Therefore we adopt a prior-dominant update:
+
+$$
+\mu_{3,\text{post}}(N) = \mu_{3,0}(N),
+$$
+
+retaining agronomic structure encoded in APSIM.
+
+---
+
+# 4. Constructing the Posterior Predictive Density via Maximum Entropy {-}
+
+Given the posterior moments  
+$(\mu_{1,\text{post}}, \mu_{2,\text{post}}, \mu_{3,\text{post}})$,  
+we approximate the full posterior predictive density $f(y\mid N)$ using a  
+**maximum-entropy exponential-polynomial distribution**:
+
+$$
+f_{\text{post}}(y \mid N)
+\propto
+\exp (\lambda_1 y + \lambda_2 y^2 + \lambda_3 y^3).
+$$
+
+The $\lambda$ parameters are obtained by solving:
+
+$$
+\mathbb{E}_{f}[Y] = \mu_{1,\text{post}},\qquad
+\mathbb{E}_{f}[Y^2] = \mu_{1,\text{post}}^2 + \mu_{2,\text{post}},\qquad
+\mathbb{E}_{f}[Y^3] = \mu_{1,\text{post}}^3 + 3\mu_{1,\text{post}}\mu_{2,\text{post}} + \mu_{3,\text{post}}.
+$$
+
+This yields a smooth posterior density that:
+
+- respects the moment constraints,  
+- retains APSIM’s agronomic skewness,  
+- reflects OFPE’s field-level information,  
+- supports full economic analysis (profit distributions, risk measures).
+
+---
+
+# 5. Optimal Nitrogen Rates Under Different Information Sets {-}
+
+For any distribution $f(y\mid N)$, expected profit is:
+
+$$
+\mathbb{E}[\pi(N)] = p_y \mu_1(N) - p_n N.
+$$
+
+We compute:
+
+### 1. **Prior optimal N**  
+Using APSIM moments only:  
+$N_{\text{prior}}^\star$
+
+### 2. **Data-only optimal N**  
+Using OFPE sample mean only:  
+$N_{\text{ofpe}}^\star$
+
+### 3. **Posterior optimal N**  
+Using the Bayesian posterior mean:  
+$$
+N_{\text{post}}^\star 
+= 
+\arg\max_N \Big\{ p_y \mu_{1,\text{post}}(N) - p_n N \Big\}.
+$$
+
+Posterior decisions inherit:
+
+- structural smoothness from APSIM,  
+- field-specific signal from OFPE,  
+- reduced variance, and  
+- economic coherence (monotone marginal product, diminishing returns).
+
+---
+
+# 6. Summary of the Bayesian Method {-}
+
+This Bayesian moment-based approach creates a unified framework in which:
+
+- APSIM supplies **structure, curvature, and agronomy**,  
+- OFPE supplies **local, noisy field-level evidence**,  
+- Bayesian updating produces **stable posterior yield distributions**, and  
+- decision rules (optimal N, profits, regrets) can be consistently compared.
+
+The method reframes OFPE from a forecasting tool into:
+
+> **A sequential learning mechanism through which farmers refine N decisions over time using both mechanistic priors and observed data.**
+
