@@ -12,13 +12,14 @@ execute:
 ---
 
 ```{r setup, include=FALSE}
+
 knitr::opts_chunk$set(
-  message   = FALSE,
-  warning   = FALSE,
-  fig.align = "center",
-  fig.width = 7,
-  fig.height = 5,
-  dpi       = 300
+message = FALSE,
+warning = FALSE,
+fig.align = "center",
+fig.width = 7,
+fig.height = 5,
+dpi = 300
 )
 
 library(here)
@@ -28,9 +29,8 @@ library(patchwork)
 
 book_figure_bayes2_dir <- here("book","Results","Figures","stage2_bayes")
 
-# overview panel built in 3a.data_ofpe_for_apsim.Rmd
 p_combined <- readRDS(
-  file.path(book_figure_bayes2_dir, "apsim_ofpe_panel.rds")
+file.path(book_figure_bayes2_dir, "apsim_ofpe_panel.rds")
 )
 
 ```
@@ -38,29 +38,17 @@ p_combined <- readRDS(
 
 ## Background {-}
 
-On-farm precision experiments (OFPE) generate high-resolution yield data under many nitrogen (N) rates on a small number of fields.  
-At first glance, this seems ideal for **predicting** yield–N relationships: fit a flexible machine-learning model (e.g., tree ensembles) and use it to choose the profit-maximizing N rate.
+On-farm precision experiments (OFPE) generate dense yield data across a wide range of nitrogen (N) rates on individual commercial fields. At first glance, this appears ideal for directly estimating a field’s yield–N relationship and using machine-learning algorithms to choose an economically optimal N rate. Yet the earlier ensemble-model analysis revealed a deeper structural issue: the observed yield is shaped by a highly complex interaction between nitrogen, soils, landscape variation, drainage, and intra-annual weather. A single OFPE year captures only one realization of that joint system, and even two years rarely span meaningful weather diversity. Machine-learning models fit these data well in-sample but fail to generalize across years and fields because the signal is thin and overwhelmed by field-specific noise.
 
-However, the earlier tree-ensemble work showed that:
+Therefore, the question is not whether OFPE can deliver perfect forecasts. It cannot. The more relevant question is how OFPE can be used together with broader and more stable information sources—APSIM simulations, long-run county yield histories, and regional production trends—to help farmers form more coherent and more defensible beliefs about their field’s yield–N curve as years accumulate.
 
-- Yield is driven by a **high-dimensional interaction** of N, soils, weather, and management.
-- Even sophisticated ensemble models trained on cleaned OFPE data **do not deliver stable, field-specific forecasts** at unseen locations or years.
-- With only one or two OFPE years per field, trying to “forecast everything” from those data is not realistic.
+The shift in perspective is fundamental. Instead of treating one or two OFPE years as a full estimator of the response function, OFPE should be viewed as incremental evidence that complements a larger information structure already available to the farmer.
 
-So the goal of this chapter is **not** to build the best forecasting model.  
-Instead, the goal is to give farmers a **disciplined way to combine what they already know (priors) with what they learn from OFPE (data)** so that their N decisions become more reasonable and more profitable **as experience accumulates over years**.
 
-In other words, the focus shifts from:
 
-> *“Can one or two years of OFPE make me rich right now?”*  
+## Information Structure: APSIM, OFPE, and Regional Yield Trends {-}
 
-to
-
-> *“Given APSIM simulations, county yield history, and my noisy OFPE field trials, what is a **coherent, transparent way** to update my beliefs about the yield–N curve on this field?”*
-
-## Information layers: APSIM grid and OFPE fields {-}
-
-The figure below summarizes the information structure for data:
+The map below introduces this structure. OFPE fields (black points) lie within APSIM simulation cells (colored polygons), each representing a 30-year distribution of yields over agronomic and weather variability.
 
 ```{r fig1, echo=TRUE, cache=TRUE, fig.width=12, fig.height=7, fig.cap="Figure 1. Information structure of APSIM and OFPE data at Illinois "}
 
@@ -68,91 +56,34 @@ p_combined
 
 ```
 
+This spatial structure matters because APSIM provides a stable representation of long-run biophysical behavior, while OFPE provides short-run, field-specific realizations. The combination of these two sources is the foundation of Bayesian updating.
 
+To illustrate their divergence, it is helpful to also look at the panel of OFPE–APSIM curve comparisons for 2023, shown below. These figures highlight the empirical challenge: OFPE responses differ across fields and weather states, and APSIM’s long-run mean often lies below observed yields at low N rates, partly because recent genetic gains and modern management have increased yield potential faster than calibrated crop models typically reflect.
 
-- **Left panel:** APSIM simulation grid, aggregated into three agronomic regions (South, Central, North). Each cell has a 30-year simulated yield–N distribution.
-- **Red polygons/points:** locations of OFPE fields overlaying the APSIM grid.
-- **Right panel:** zoom on one APSIM cell and a single OFPE field (e.g., Farm 19, Field 1, 2022), showing how the field sits inside a cell with heterogeneous soils (different *mukey* values).
+```{r fig2, echo=TRUE, cache=TRUE, fig.width=12, fig.height=7, fig.cap="Figure 2. OFPE, APSIM and regional average yield comparison in 2023 "}
 
+knitr::include_graphics(file.path(book_figure_bayes2_dir, "apsim_ofpe_curves_2023.pdf"))
 
-This map captures the basic logic of the Bayesian chapter:
+```
 
-1. **APSIM region–cell priors**  
-   For each APSIM cell and N rate, we have a prior distribution of yield (mean, variance, skewness) based on long-run weather and soils.
+The pattern shown here—APSIM underestimating low-N yields in some years, OFPE curves differing sharply even within the same region, and substantial within-N yield variation—underscores the need for a framework that neither over-reacts to one noisy trial nor blindly relies on long-run simulation outputs.
 
-2. **Field-specific OFPE data**  
-   On a subset of cells we observe OFPE data: noisy yield outcomes at a finite set of N rates in one or two years.
+## Why a Bayesian Perspective Is Needed Now {-}
 
-3. **Bayesian updating at the field–N level**  
-   At each N rate, we update the APSIM prior moments with the OFPE sample moments to obtain a **posterior yield–N distribution for that field and year**.
+From a decision-making standpoint, a farmer must choose N before observing the growing season, based on uncertain beliefs about the yield–N function. Three realities make Bayesian updating appropriate.
 
-The rest of the chapter formalizes this updating and studies how much the OFPE data actually move the prior, and how that matters for N decisions.
+First, OFPE alone cannot be treated as a full estimator of the response curve. With only one or two years of data and large within-N variance, relying exclusively on OFPE produces overfitting: the yield–N curve inferred from a single season is too tightly tied to that year’s weather and idiosyncratic field conditions.
 
-## What this chapter claims (and what it does not) {-}
+Second, APSIM alone cannot be treated as the truth either. While APSIM encodes agronomic knowledge and long-run climate variability, it can systematically misrepresent the level and curvature of field-level responses. This leads to under-fitting: the recommendations based solely on APSIM may ignore persistent field-specific deviation from the regional or simulated pattern.
 
-### 1. OFPE alone is not a credible decision supporter {-}
+Third, county-level historical yield trends offer information about regional production trajectories, but not about the curvature of yield–N relationships. They tell us how yield potential has shifted over time due to genetics or management, and thus provide context for calibrating and interpreting APSIM priors. For example, when regional yields consistently exceed APSIM mid-range predictions, this discrepancy informs how the prior should be interpreted and why OFPE deviations are not surprising.
 
-Even with careful cleaning and clustering, single-field OFPE data are:
+A Bayesian perspective provides a disciplined way to combine these imperfect sources. However, with only one or two OFPE years available today, the posterior should not be interpreted as a finalized “answer.” Instead, it should be viewed as a framework for long-run learning, designed so that sequential OFPE seasons—accumulated over time or across producers—can gradually refine the field-specific beliefs.
 
-- **Noisy**: high within-N variance due to micro-topography, measurement error, and unobserved shocks.
-- **Sparse in time**: one or two years rarely span the full range of weather states.
-- **High-dimensional**: soils, topography, and management interact with N in ways that tree models can fit in-sample but cannot reliably extrapolate.
+## Using OFPE in a Long-Term Decision Framework {-}
 
-Therefore, **OFPE by itself is not sufficient** to deliver stable, field-specific profit-maximizing N recommendations.
+The role of OFPE in this study is therefore not to produce an immediate, sharply defined posterior curve, but to serve as the basis for a cumulative learning process. Even two replicated trials on the same field can already reveal important economic structure: whether the field consistently sits above or below its regional trend; whether the yield–N shape is stable or highly sensitive to weather; and whether the APSIM prior consistently over- or under-predicts the observed range.
 
-### 2. APSIM and county yield history are useful—but incomplete—priors {-}
+Over time, OFPE provides a slow but informative sequence of signals. APSIM provides the broad envelope of plausible responses. County yield histories provide temporal context and calibration. Together they constitute a hierarchy of evidence that supports a farmer’s evolving beliefs.
 
-Long-run APSIM simulations and county yield histories:
-
-- Capture **systematic spatial patterns** (North vs Central vs South) and **climate-driven trends**.
-- Provide smooth, concave yield–N curves at the **cell or county scale**.
-
-But they **do not know the farmer’s specific field**:
-
-- Local management, drainage, and micro-soils can shift the whole yield–N curve up or down.
-- APSIM calibration and county averages can misrepresent the **level and curvature** of the true field-level response.
-
-So these sources are **good priors**—they encode agronomic knowledge and regional history—but they **do not by themselves produce field-optimal N rates**.
-
-### 3. The contribution of this Bayesian chapter {-}
-
-The contribution is **not** to show that “one or two years of OFPE make farmers dramatically richer.”  
-Instead, the contribution is to build a **coherent Bayesian framework** that:
-
-1. Treats APSIM simulations and county history as **prior information** about the yield–N distribution for each cell and region.
-2. Treats OFPE cluster means and variances as **noisy “likelihood” information** about the field-specific yield–N curve.
-3. Updates prior moments (mean and variance, and optionally skewness) into **posterior yield–N distributions** at each N rate.
-4. Uses these posterior distributions to derive **field-specific N recommendations** and to evaluate:
-
-   - How far OFPE moves the prior (in μ₁, μ₂, and implied optimal N).
-   - How much expected profit changes relative to **prior-only** or **data-only** decisions.
-
-The key message is:
-
-> OFPE is most valuable when interpreted as **additional evidence that shifts a prior**, not as a standalone forecasting engine.  
-> This chapter shows how to do that update in a way that is transparent, statistically coherent, and scalable as more OFPE seasons accumulate.
-
-## Roadmap of the Bayesian section {-}
-
-The rest of the Bayesian part of the book is organized as follows:
-
-### ** Bayesian_Framework ** {-}
-
-- Formalize the farmer’s nitrogen–choice problem under uncertainty.  
-- Introduce prior, likelihood, and posterior yield–N distributions.  
-- Define profit and regret measures for comparing decision rules.
-
-### ** Bayesian_Method ** {-}
-
-- Construct OFPE and APSIM yield–N moment tables.  
-- Define the Bayesian moment update and maximum-entropy posterior construction.  
-- Describe how optimal nitrogen rates are derived from prior, data-only, and posterior distributions.
-
-### ** Bayesian_Results ** {-}
-
-- Show how OFPE updates APSIM priors at the field level (posterior μ₁, μ₂, and optimal N).  
-- Compare profits and N use under different decision rules on repeated fields.  
-- Discuss where OFPE has meaningful influence and where noise dominates.
-
-
-Together, these chapters reposition OFPE from a fragile forecasting tool to a **Bayesian learning device** that helps farmers use limited trial data to gradually refine field-specific N decisions over time.
+The objective of the Bayesian chapters in this book is to establish this structure—not to assert that the current posterior is sufficiently precise, but to define the mechanism through which accumulating OFPE data will eventually yield more reliable and more profitable nitrogen decisions.

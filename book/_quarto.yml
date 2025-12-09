@@ -20,6 +20,7 @@ book:
         - 06.Bayesian_Overview.Rmd
         - 07.Bayesian_Framework.Rmd
         - 08.Bayesian_Method.Rmd
+        - 09.Bayesian_Results(under revision).Rmd
 
 format:
   html:

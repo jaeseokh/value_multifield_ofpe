@@ -7,74 +7,33 @@ execute:
   message: false
 ---
 
-## 1. Motivation and Role of Information {-}
+# Economic Framework {-}
 
-On-farm experiments (OFEs) have long been a cornerstone of agronomic research, providing structured, randomized trials to estimate crop yield responses to key inputs such as nitrogen (N). Their small plot size, however, limits the ability to capture spatial heterogeneity, which can bias estimates of the Economic Optimum Nitrogen Rate (EONR) when field variability is ignored [@bullock2009value; @anselin2004spatial].
+On-farm experiments (OFEs) have long been a cornerstone of agronomic research, providing structured, randomized trials to estimate crop yield responses to key inputs such as nitrogen (N). Their small plot size, however, limits the ability to capture spatial heterogeneity, which can bias estimates of the Economic Optimum Nitrogen Rate (EONR) when field variability is ignored @bullock2009value; @anselin2004spatial. The emergence of On-Farm Precision Experiments (OFPEs) offers a scalable alternative. Using GPS-guided machinery, OFPEs introduce variable-rate nitrogen treatments across entire commercial fields, generating large spatial datasets that better reflect realistic production environments @bullock2019data; @gebbers2010precision. This approach introduces new costs and risks for growers, because testing extreme nitrogen rates—particularly low or unprofitable levels—can expose farmers to revenue losses @de2023predicting, and multi-year replication is often required to capture the agronomic interactions between nitrogen, soil, and weather.
 
-The emergence of On-Farm Precision Experiments (OFPEs) offers a scalable alternative. Using GPS-guided machinery, OFPEs introduce variable-rate nitrogen treatments across entire commercial fields, generating large spatial datasets that better reflect realistic production environments [@bullock2019data; @gebbers2010precision]. Yet, this approach introduces new costs and risks for growers. Testing extreme N rates—particularly low or unprofitable levels—can expose farmers to revenue losses [@de2023predicting], and multi-year replication is often required to capture the agronomic interactions between nitrogen, soil, and weather.
+Within this setting, the central question is whether multi-field OFPE data can provide decision-relevant information for fields where no direct OFPE has been conducted. If the answer is positive, OFPE data generate positive informational externalities, enabling farmers to benefit from trials done on other fields. This possibility is especially important in the U.S. Corn Belt, where growers manage large areas but face logistical, financial, and risk-related barriers to running their own OFPEs. The economic framework developed here formalizes this question and provides a basis for evaluating the value of cross-field information.
 
-These constraints raise the central question of this study:
-
-**Can multi-field OFPE data provide decision-relevant information for fields where no direct OFPE has been conducted?**
-
-If so, OFPE data could generate **positive externalities**, enabling farmers to benefit from trials done on other fields. This would be especially valuable in the U.S. Corn Belt, where growers manage large areas but face logistical, financial, and risk-related barriers to running their own OFPEs.
-
-This chapter develops the economic framework underlying that question.
-
----
-
-## 2. Yield Response and the Information Structure {-}
-
-Following @bullock2009value, crop yield $y$ is modeled as:
-
+Following @bullock2009value, crop yield $y$ is modeled as
 $$
-y = f(\mathbf{x}, \mathbf{c}, \mathbf{z})
-$$ {#eq-yield}
-
-where:
-
-- $\mathbf{x}$ = vector of controllable inputs (seed, fertilizer, herbicides, hybrids),  
-- $\mathbf{c}$ = field characteristics (soil, organic matter, topography),  
-- $\mathbf{z}$ = stochastic temporal variables (weather, pests).
-
-The full function  
-$$f(\mathbf{x}, \mathbf{c}, \mathbf{z})$$  
-is referred to as **nature’s meta-response function**.
-
-For a specific field $i$ with characteristic map $\mathbf{c}_i$, the site-specific response function is:
-
+y = f(\mathbf{x}, \mathbf{c}, \mathbf{z}),
 $$
-f_i(\mathbf{x}, \mathbf{z}) \equiv f(\mathbf{x}, \mathbf{c}_i, \mathbf{z})
+where $\mathbf{x}$ denotes a vector of controllable inputs such as seed, fertilizer, herbicides, and hybrids; $\mathbf{c}$ collects field characteristics such as soil, organic matter, and topography; and $\mathbf{z}$ represents stochastic temporal variables such as weather and pest pressure. The full function $f(\mathbf{x}, \mathbf{c}, \mathbf{z})$ is referred to as nature’s meta-response function. For a specific field $i$ with characteristic map $\mathbf{c}_i$, the site-specific response function is
 $$
-
-This function determines how yield responds to nitrogen under that field’s soil and topographic conditions.
-
----
-
-## 3. Farmer’s Profit Maximization Problem {-}
-
-Assuming nitrogen is the only controllable input and prices $\mathbf{p}$ (crop) and $\mathbf{w}$ (N) are fixed, the farmer’s profit is:
-
+f_i(\mathbf{x}, \mathbf{z}) \equiv f(\mathbf{x}, \mathbf{c}_i, \mathbf{z}),
 $$
-\pi = \mathbf{p}\, f_i(N, \mathbf{z}) - \mathbf{w}\, N
-$$ {#eq-profit}
+which determines how yield responds to nitrogen under that field’s soil and topographic conditions.
 
-Farmers face **two sources of uncertainty** when choosing $N$:
+Assuming nitrogen is the only controllable input and prices $\mathbf{p}$ (crop) and $\mathbf{w}$ (N) are fixed, the farmer’s profit is
+$$
+\pi = \mathbf{p}\, f_i(N, \mathbf{z}) - \mathbf{w}\, N.
+$$
+Farmers face two conceptually distinct sources of uncertainty when choosing $N$. First, weather events $\mathbf{z} \in Z$ follow a climate distribution $h(\mathbf{z})$, but the realized $\mathbf{z}$ is not known ex ante. Second, farmers are uncertain about the true yield response function. They hold a subjective distribution $g(f_i^m \mid \eta)$ over a finite set of possible response functions
+$$
+\Omega = \{ f_i^1, \ldots, f_i^M \},
+$$
+with the true function denoted $f_i^R$. Here $\eta$ represents the available information. As information improves, beliefs become more concentrated, and $g(f_i^m \mid \eta)$ tends toward one for $m=R$, in the sense described by @laffont1989economie.
 
-1. **Weather uncertainty.**  
-   Weather events $\mathbf{z} \in Z$ follow a known climate distribution $h(\mathbf{z})$, but farmers cannot know the realized $\mathbf{z}$ ex ante.
-
-2. **Uncertainty about the true yield response function.**  
-   Farmers have a subjective distribution $g(f_i^m \mid \eta)$ over the set of possible yield response functions  
-   $$\Omega = \{ f_i^1, \ldots, f_i^M \}$$  
-   where the true function is $f_i^R$.
-
-More information (denoted $\eta$) sharpens this belief, causing  
-$$g(f_i^m \mid \eta) \to 1 \text{ for } m = R$$  
-as in @laffont1989economie.
-
-Thus, expected maximum profit under information $\eta$ is:
-
+Expected maximum profit under information set $\eta$ is given by
 $$
 E(\pi_i \mid \eta)
 = 
@@ -87,86 +46,24 @@ E(\pi_i \mid \eta)
   \right]
   g(f_i^m \mid \eta)
 \right\}
-h(\mathbf{z}) \, d\mathbf{z}
-$$ {#eq-expected-profit}
-
-This expression is central: it shows **how better information leads to better nitrogen decisions**.
-
----
-
-## 4. How OFPE Data Provide Information {-}
-
-OFPEs reveal information about:
-
-- the field-specific structure of $f_i(N,\mathbf{z})$,  
-- the interaction between applied N and soil/topographic features $\mathbf{c}_i$,  
-- the way weather modifies nitrogen response.
-
-Given OFPE data, beliefs collapse:
-
+h(\mathbf{z}) \, d\mathbf{z},
 $$
-g(f_i^R \mid \eta^{\prime}) = 1
+which explicitly shows how the quality of information affects the nitrogen decision and the resulting expected profit.
+
+OFPEs provide information about the field-specific structure of $f_i(N,\mathbf{z})$, the interaction between applied nitrogen and soil or topographic features $\mathbf{c}_i$, and the way weather modifies nitrogen response. Given rich OFPE data on field $i$, beliefs over the space of response functions can collapse toward the truth, so that
 $$
-
-where $\eta^\prime$ denotes information from a *single-field* OFPE.
-
-However, if single-field OFPEs are infeasible, farmers may rely on:
-
-- $\eta^{\prime}$ = benchmark information (from own OFPE),  
-- $\eta^{\prime\prime}$ = **information from multi-field OFPE data**.
-
-The relevant welfare comparison is:
-
+g(f_i^R \mid \eta^{\prime}) = 1,
+$$
+where $\eta^{\prime}$ denotes information obtained from a single-field OFPE. However, if single-field OFPEs are infeasible, farmers may rely instead on benchmark information $\eta^{\prime}$ from their own OFPE, when available, or on $\eta^{\prime\prime}$, which summarizes information from multi-field OFPE data. The key welfare comparison is
 $$
 \left|
 \big[E(\pi_i \mid \eta^{\prime\prime}) - E(\pi_i \mid \eta^\prime)\big]
 -
 \big[C(\eta^{\prime\prime}) - C(\eta^\prime)\big]
-\right|
-$$ {#eq-welfare}
+\right|,
+$$
+where $E(\pi_i \mid \eta^\prime)$ is expected profit using field-specific OFPE data, $E(\pi_i \mid \eta^{\prime\prime})$ is expected profit using cross-field information, and $C(\eta)$ denotes the cost of obtaining information set $\eta$. The empirical analysis asks whether $\eta^{\prime\prime}$ can approximate $\eta^\prime$ in terms of decision quality, that is, whether multi-field OFPE data can provide nearly as much decision value as a field’s own OFPE.
 
-Here:
+To address this question, machine learning models such as XGBoost, Random Forest, and Causal Forest are used to predict the EONR for a given field based on data from other fields. The benchmark EONR, denoted $\text{EONR}_d$, is constructed ex post using generalized additive model (GAM)–based yield–nitrogen curves fitted to each field @wood2017generalized. The cross-field prediction, $\text{EONR}_o$, is obtained from models trained on multi-field OFPE data. Comparisons between $\text{EONR}_o$ and $\text{EONR}_d$ reveal large gaps, a lack of convergence across machine-learning methods, instability in predictions across price and weather regimes, and biological implausibility in some of the yield–nitrogen curves implied by cross-field predictions. These failures arise from the limited number of OFPE trials, which restricts weather and spatial diversity; from the static, low-resolution nature of soil and topographic covariates such as SSURGO and DEM; and from complex interactions among nitrogen, water, mineralization, and weather that are difficult for purely statistical models to capture.
 
-- $E(\pi_i \mid \eta^\prime)$ = expected profit using field-specific OFPE data  
-- $E(\pi_i \mid \eta^{\prime\prime})$ = expected profit using cross-field information  
-- $C(\eta)$ = cost of obtaining information set $\eta$
-
-This study evaluates whether $\eta^{\prime\prime}$ can approximate $\eta^\prime$ —  
-**i.e., whether multi-field OFPE data can provide nearly as much decision value as a field’s own OFPE.**
-
----
-
-## 5. Why Multi-Field OFPE Predictions Fail (Link to ML Results) {-}
-
-Using machine learning models (XGBoost, Random Forest, Causal Forest), we evaluate whether EONR predictions from other fields (EONR\_o) approximate the benchmark EONR from the field’s own OFPE (EONR\_d).  
-EONR\_d is constructed ex post using GAM-based yield–N curves fitted to each field [@wood2017generalized].
-
-Results reveal:
-
-- **Large gaps** between EONR\_o and EONR\_d  
-- **No convergence** across ML methods  
-- **Instability** in predictions across price and weather regimes  
-- **Biological implausibility** in yield–N curves derived from cross-field predictions  
-
-These inconsistencies stem from:
-
-1. **Limited number of OFPE trials** → insufficient weather and spatial diversity  
-2. **Static, low-resolution soil/topographic covariates** (SSURGO, DEM)  
-3. **Complex interactions** between N, water, mineralization, and weather  
-4. **Mismatch between machine-learning predictors and underlying agronomic processes**
-
-Thus, current multi-field OFPE data are **not yet a reliable substitute** for a field’s own experiment.
-
----
-
-# Summary {-}
-
-This chapter presents the economic logic guiding the analysis:
-
-- Farmers maximize expected profit under uncertainty about weather and the yield response function.  
-- OFPEs provide information that sharpens beliefs about the true response function.  
-- Multi-field OFPE data may or may not provide information comparable to single-field OFPE data.  
-- The welfare value of cross-field information depends on how well EONR\_o approximates EONR\_d.  
-- Empirical evidence (Chapter: Results Limitations) shows major failures in generalization, motivating the transition to a **Bayesian–APSIM** framework.
-
-The next chapter introduces the mechanistic, simulation-based priors that overcome many of the limitations identified above.
+The economic implication is that current multi-field OFPE data, when used with flexible machine-learning methods alone, are not yet a reliable substitute for a field’s own experiment. The framework developed here therefore motivates a transition to a Bayesian–APSIM approach, in which mechanistic crop models and regional yield histories are used to construct priors that can be coherently updated with OFPE data, offering a more robust basis for nitrogen decision support under uncertainty.

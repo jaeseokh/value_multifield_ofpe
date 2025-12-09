@@ -1,0 +1,19 @@
+---
+title: "Bayesian Results"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: false
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+## To be updated with  {-}
+
+### 1. Visual diagram of producer(farmer)'s decision supporting system (with bayesian approach)  {-}
+### 2. Statitical Inference from the data anlaysis Results  {-}
+### 3. Dyanmic Optimizing behavior map of producer(farmer)  {-}
+

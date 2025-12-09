@@ -102,7 +102,7 @@ By these model the yield($bu/ac$) of OFPE fields were trained on:
 
 With generalization assessed via the cross-validation method:
 
-### Leave-One-Location-Out (LOLO) validation
+### Leave-One-Location-Out (LOLO) validation {-}
 
 1. Train on all fields *except* one  
 2. Predict the held-out field  

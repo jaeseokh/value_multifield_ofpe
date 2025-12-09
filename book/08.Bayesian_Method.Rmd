@@ -1,5 +1,6 @@
 ---
 title: "Bayesian Method"
+bibliography: value_refs.bib
 format:
   html:
     toc: true
@@ -11,235 +12,73 @@ execute:
   message: false
 ---
 
-# 1. Overview of the Bayesian Moment-Based Framework {-}
+# Bayesian Method {-}
 
-This chapter develops the empirical machinery for combining:
-
-- **APSIM mechanistic priors**, which describe long-run biophysical nitrogen–yield patterns;  
-- **OFPE field trials**, which provide noisy but field-specific evidence for a single year.
-
-Both datasets are transformed into a common representation:  
-the **first three moments** of the yield distribution at each nitrogen rate $N$:
-
+The Bayesian method operationalizes the conceptual framework by specifying how prior information, OFPE data, and probabilistic updating are combined into a predictive distribution for yields at each nitrogen rate. Let $N$ denote the nitrogen rate and $Y(N)$ the corresponding random yield. Prior information comes from APSIM simulations and regional yield histories, both of which help characterize long-run agronomic outcomes under alternative nitrogen regimes @holzworth2014apsim; @naderi2020yieldtrends. This information is summarized through the first three moments,
 $$
-\big( \mu_1(N),\ \mu_2(N),\ \mu_3(N) \big),
+\mu_{1,0}(N), \qquad \mu_{2,0}(N), \qquad \mu_{3,0}(N),
 $$
+representing the prior mean, variance, and third central moment. These moments define the prior density $f_0(y \mid N)$, which provides an informative but imperfect representation of field-level yield behavior.
 
-where:
-
-- $\mu_1$ = mean yield  
-- $\mu_2$ = variance  
-- $\mu_3$ = third central moment (skewness component)
-
-APSIM provides an informed but non-field-specific *prior*,  
-and OFPE provides a noisy *likelihood*.  
-The combination yields a *posterior* set of moments, which feed into a  
-maximum-entropy posterior predictive distribution.
-
----
-
-# 2. Representing APSIM and OFPE in a Common Moment Structure {-}
-
-## 2.1 APSIM as a prior moment sequence
-
-For each APSIM cell and rate $N$:
-
-- multiple weather-year simulations produce a distribution of yields  
-- we compute:
-
+To incorporate field evidence, the OFPE design assigns multiple subplots to each nitrogen rate @bullock2019ofpe; @mieno2022learning. Suppose that rate $N_k$ is applied to $n_k$ subplots with yields $\{Y_{k1},\dots,Y_{k n_k}\}$. The sample mean,
 $$
-\mu_{1,0}(N),\quad
-\mu_{2,0}(N),\quad
-\mu_{3,0}(N)
+\bar{Y}_k = \frac{1}{n_k}\sum_j Y_{kj},
 $$
-
-These represent the farmer’s **prior belief** about yield at rate $N$:  
-a smooth, agronomically coherent curve shaped by water stress, mineralization, and APSIM physics.
-
-APSIM provides:
-
-- plausible curvature,  
-- diminishing returns to nitrogen,  
-- realistic year-to-year variance.
-
-But it may misalign with a field’s yield level or responsiveness.
-
----
-
-## 2.2 OFPE as noisy sample moments
-
-For each field-year and OFPE cluster (strip) at nitrogen rate $N$:
-
-- the raw OFPE observations yield:
-
+is treated as a noisy measurement of the underlying field-specific mean yield $\mu_1(N_k)$. Under standard sampling assumptions for subplot-scale agronomic experiments @casella2002statistical, the corresponding likelihood is
 $$
-\bar{Y}(N),\qquad s^2(N),\qquad m_3(N),
+\bar{Y}_k \mid \mu_1(N_k)
+\sim
+\mathcal{N}\!\left(\mu_1(N_k),\,\frac{\sigma^2(N_k)}{n_k}\right),
 $$
+which reflects the high precision of subplot means within a year but only for the weather state realized during the trial.
 
-with $n(N)$ observations in that cluster.
-
-These moments reflect **one realized season**, containing:
-
-- idiosyncratic weather shocks,  
-- field-specific soil micro-variability,  
-- measurement noise.
-
-Thus OFPE provides **field-specific but imprecise** evidence.
-
----
-
-# 3. Bayesian Moment Updating: Prior → Posterior {-}
-
-The Bayesian update is conducted at each nitrogen rate $N$, using a normal–normal structure.
-
-Let:
-
-- $\mu_{1,0}(N)$, $\mu_{2,0}(N)$ = APSIM prior mean and variance  
-- $\bar{Y}(N)$, $s^2(N)$ = OFPE sample mean and variance  
-- $n(N)$ = cluster size  
-
-Define prior precision:
-
+The prior distribution for $\mu_1(N)$ is specified as
 $$
-\tau_0(N) = \frac{1}{\mu_{2,0}(N)},
+\mu_1(N) \sim \mathcal{N}\!\left(m_0(N),\,v_0(N)\right),
 $$
-
-and data precision:
-
+where $m_0(N)$ equals the APSIM-derived prior mean $\mu_{1,0}(N)$ and $v_0(N)$ formalizes uncertainty about how well APSIM approximates field conditions. The Normal–Normal conjugacy @gelman2013bayesian yields the posterior distribution
 $$
-\tau_d(N) = \frac{1}{s^2(N)/n(N)}.
+\mu_1(N) \mid \bar{Y}(N)
+\sim
+\mathcal{N}\!\left(m_1(N),\,v_1(N)\right),
 $$
-
-## 3.1 Posterior mean
-
-Posterior expected yield is a precision-weighted average:
-
+with posterior variance
 $$
-\mu_{1,\text{post}}(N)
+v_1(N)
 =
-\frac{
-  \tau_0(N) \mu_{1,0}(N)
-  +
-  \tau_d(N)\bar{Y}(N)
-}{
-  \tau_0(N) + \tau_d(N)
-}.
+\left[
+\frac{1}{v_0(N)} + \frac{n(N)}{\sigma^2(N)}
+\right]^{-1},
+$$
+and posterior mean
+$$
+m_1(N)
+=
+v_1(N)\left[
+\frac{m_0(N)}{v_0(N)} +
+\frac{n(N)\bar{Y}(N)}{\sigma^2(N)}
+\right].
 $$
 
-This exhibits classical Bayesian shrinkage:
+These expressions formalize the central mechanism of Bayesian updating: information from APSIM simulations is combined with field observations in proportion to their respective precisions. When $n(N)$ is large, the OFPE mean has greater influence; when the prior variance $v_0(N)$ is small, the posterior remains closer to the simulation-informed expectation. The posterior variance decreases as either the OFPE sample size grows or the prior becomes more informative.
 
-- When OFPE is noisy ($n$ small, $s^2$ large), the posterior relies more heavily on APSIM.  
-- When OFPE is dense and consistent, the posterior moves toward the sample mean.
-
----
-
-## 3.2 Posterior variance
-
-Posterior precision is additive:
-
-$$
-\tau_{\text{post}}(N) = \tau_0(N) + \tau_d(N),
-$$
-
-with variance:
-
-$$
-\mu_{2,\text{post}}(N) = \frac{1}{\tau_{\text{post}}(N)}.
-$$
-
-Posterior uncertainty is always lower than either source alone,  
-reflecting the information gain from combining two signals.
-
----
-
-## 3.3 Posterior skewness (third moment)
-
-OFPE provides extremely noisy estimates of skewness.  
-Therefore we adopt a prior-dominant update:
-
-$$
-\mu_{3,\text{post}}(N) = \mu_{3,0}(N),
-$$
-
-retaining agronomic structure encoded in APSIM.
-
----
-
-# 4. Constructing the Posterior Predictive Density via Maximum Entropy {-}
-
-Given the posterior moments  
-$(\mu_{1,\text{post}}, \mu_{2,\text{post}}, \mu_{3,\text{post}})$,  
-we approximate the full posterior predictive density $f(y\mid N)$ using a  
-**maximum-entropy exponential-polynomial distribution**:
-
+To obtain a predictive distribution for yields, both uncertainty in the long-run mean and within-season stochastic variation must be incorporated. Conceptually, the posterior predictive density is
 $$
 f_{\text{post}}(y \mid N)
-\propto
-\exp (\lambda_1 y + \lambda_2 y^2 + \lambda_3 y^3).
+=
+\int f(y \mid \mu_1(N))\,
+p(\mu_1(N) \mid \text{data})\,
+d\mu_1(N),
 $$
+a mixture reflecting uncertainty about the underlying mean combined with yield variability conditional on that mean @gelman2013bayesian. Because higher-order moments of the posterior cannot be inferred reliably from one or two OFPE years, the predictive density is represented via a maximum-entropy distribution matching the posterior mean, posterior variance, and prior-informed third moment @jaynes1957information1; @jaynes1957information2. This construction preserves essential moment information while remaining agnostic about unsupported distributional features.
 
-The $\lambda$ parameters are obtained by solving:
-
+The resulting predictive distribution enters the farmer’s economic decision problem:
 $$
-\mathbb{E}_{f}[Y] = \mu_{1,\text{post}},\qquad
-\mathbb{E}_{f}[Y^2] = \mu_{1,\text{post}}^2 + \mu_{2,\text{post}},\qquad
-\mathbb{E}_{f}[Y^3] = \mu_{1,\text{post}}^3 + 3\mu_{1,\text{post}}\mu_{2,\text{post}} + \mu_{3,\text{post}}.
+N_{\text{post}}^\star
+=
+\arg\max_N
+\Big\{
+p_y\,\mathbb{E}_{\text{post}}[Y(N)] - p_n\,N
+\Big\},
 $$
-
-This yields a smooth posterior density that:
-
-- respects the moment constraints,  
-- retains APSIM’s agronomic skewness,  
-- reflects OFPE’s field-level information,  
-- supports full economic analysis (profit distributions, risk measures).
-
----
-
-# 5. Optimal Nitrogen Rates Under Different Information Sets {-}
-
-For any distribution $f(y\mid N)$, expected profit is:
-
-$$
-\mathbb{E}[\pi(N)] = p_y \mu_1(N) - p_n N.
-$$
-
-We compute:
-
-### 1. **Prior optimal N**  
-Using APSIM moments only:  
-$N_{\text{prior}}^\star$
-
-### 2. **Data-only optimal N**  
-Using OFPE sample mean only:  
-$N_{\text{ofpe}}^\star$
-
-### 3. **Posterior optimal N**  
-Using the Bayesian posterior mean:  
-$$
-N_{\text{post}}^\star 
-= 
-\arg\max_N \Big\{ p_y \mu_{1,\text{post}}(N) - p_n N \Big\}.
-$$
-
-Posterior decisions inherit:
-
-- structural smoothness from APSIM,  
-- field-specific signal from OFPE,  
-- reduced variance, and  
-- economic coherence (monotone marginal product, diminishing returns).
-
----
-
-# 6. Summary of the Bayesian Method {-}
-
-This Bayesian moment-based approach creates a unified framework in which:
-
-- APSIM supplies **structure, curvature, and agronomy**,  
-- OFPE supplies **local, noisy field-level evidence**,  
-- Bayesian updating produces **stable posterior yield distributions**, and  
-- decision rules (optimal N, profits, regrets) can be consistently compared.
-
-The method reframes OFPE from a forecasting tool into:
-
-> **A sequential learning mechanism through which farmers refine N decisions over time using both mechanistic priors and observed data.**
-
+where $\mathbb{E}_{\text{post}}[Y(N)]$ is evaluated under $f_{\text{post}}(y \mid N)$ @antle1983stochastic; @just1990studies. The Bayesian method thus generates a nitrogen recommendation that reflects both agronomic knowledge encoded in APSIM and the local information obtained from OFPE experiments. As additional OFPE seasons accumulate, the posterior predictive distribution becomes increasingly shaped by field-level observations, and the decision rule progressively converges toward the field’s long-run optimum. In this way, the Bayesian method provides a coherent mechanism for integrating heterogeneous information sources into a unified and continuously improving decision-support system.

@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
-<title>4&nbsp; Methods – Bayesian Yield–N Modeling</title>
+<title>9&nbsp; Bayesian Results – Bayesian Yield–N Modeling</title>
 <style>
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
@@ -54,27 +54,7 @@ div.sourceCode
 @media screen {
 pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
 }
-/* CSS for citations */
-div.csl-bib-body { }
-div.csl-entry {
-  clear: both;
-  margin-bottom: 0em;
-}
-.hanging-indent div.csl-entry {
-  margin-left:2em;
-  text-indent:-2em;
-}
-div.csl-left-margin {
-  min-width:2em;
-  float:left;
-}
-div.csl-right-inline {
-  margin-left:2em;
-  padding-left:1em;
-}
-div.csl-indent {
-  margin-left: 2em;
-}</style>
+</style>
 
 
 <script src="site_libs/quarto-nav/quarto-nav.js"></script>
@@ -84,8 +64,7 @@ div.csl-indent {
 <script src="site_libs/quarto-search/fuse.min.js"></script>
 <script src="site_libs/quarto-search/quarto-search.js"></script>
 <meta name="quarto:offset" content="./">
-<link href="./05.Results(Limitation).html" rel="next">
-<link href="./03.Data_and_Experiment.html" rel="prev">
+<link href="./08.Bayesian_Method.html" rel="prev">
 <script src="site_libs/quarto-html/quarto.js"></script>
 <script src="site_libs/quarto-html/popper.min.js"></script>
 <script src="site_libs/quarto-html/tippy.umd.min.js"></script>
@@ -123,35 +102,6 @@ div.csl-indent {
   }
 }</script>
 
-  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
-
-<script type="text/javascript">
-const typesetMath = (el) => {
-  if (window.MathJax) {
-    // MathJax Typeset
-    window.MathJax.typeset([el]);
-  } else if (window.katex) {
-    // KaTeX Render
-    var mathElements = el.getElementsByClassName("math");
-    var macros = [];
-    for (var i = 0; i < mathElements.length; i++) {
-      var texText = mathElements[i].firstChild;
-      if (mathElements[i].tagName == "SPAN") {
-        window.katex.render(texText.data, mathElements[i], {
-          displayMode: mathElements[i].classList.contains('display'),
-          throwOnError: false,
-          macros: macros,
-          fleqn: false
-        });
-      }
-    }
-  }
-}
-window.Quarto = {
-  typesetMath
-};
-</script>
 
 <link rel="stylesheet" href="style.css">
 </head>
@@ -165,7 +115,7 @@ window.Quarto = {
       <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         <i class="bi bi-layout-text-sidebar-reverse"></i>
       </button>
-        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./01.Overview.html">Tree Ensemble Prediction (2022)</a></li><li class="breadcrumb-item"><a href="./04.Method.html"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Methods</span></a></li></ol></nav>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./06.Bayesian_Overview.html">Bayesian-Hierarchical Analysis (2025)</a></li><li class="breadcrumb-item"><a href="./09.Bayesian_Results(under revision).html"><span class="chapter-number">9</span>&nbsp; <span class="chapter-title">Bayesian Results</span></a></li></ol></nav>
         <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
         </a>
       <button type="button" class="btn quarto-search-button" aria-label="Search" onclick="window.quartoOpenSearch();">
@@ -225,7 +175,7 @@ window.Quarto = {
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="./04.Method.html" class="sidebar-item-text sidebar-link active">
+  <a href="./04.Method.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Methods</span></span></a>
   </div>
 </li>
@@ -266,7 +216,7 @@ window.Quarto = {
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="./09.Bayesian_Results(under revision).html" class="sidebar-item-text sidebar-link">
+  <a href="./09.Bayesian_Results(under revision).html" class="sidebar-item-text sidebar-link active">
  <span class="menu-text"><span class="chapter-number">9</span>&nbsp; <span class="chapter-title">Bayesian Results</span></span></a>
   </div>
 </li>
@@ -277,15 +227,26 @@ window.Quarto = {
 </nav>
 <div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
 <!-- margin-sidebar -->
-    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar zindex-bottom">
-        
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#to-be-updated-with" id="toc-to-be-updated-with" class="nav-link active" data-scroll-target="#to-be-updated-with">To be updated with</a>
+  <ul class="collapse">
+  <li><a href="#visual-diagram-of-producerfarmers-decision-supporting-system-with-bayesian-approach" id="toc-visual-diagram-of-producerfarmers-decision-supporting-system-with-bayesian-approach" class="nav-link" data-scroll-target="#visual-diagram-of-producerfarmers-decision-supporting-system-with-bayesian-approach">1. Visual diagram of producer(farmer)’s decision supporting system (with bayesian approach)</a></li>
+  <li><a href="#statitical-inference-from-the-data-anlaysis-results" id="toc-statitical-inference-from-the-data-anlaysis-results" class="nav-link" data-scroll-target="#statitical-inference-from-the-data-anlaysis-results">2. Statitical Inference from the data anlaysis Results</a></li>
+  <li><a href="#dyanmic-optimizing-behavior-map-of-producerfarmer" id="toc-dyanmic-optimizing-behavior-map-of-producerfarmer" class="nav-link" data-scroll-target="#dyanmic-optimizing-behavior-map-of-producerfarmer">3. Dyanmic Optimizing behavior map of producer(farmer)</a></li>
+  </ul></li>
+  </ul>
+</nav>
     </div>
 <!-- main -->
 <main class="content" id="quarto-document-content">
 
-<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./01.Overview.html">Tree Ensemble Prediction (2022)</a></li><li class="breadcrumb-item"><a href="./04.Method.html"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Methods</span></a></li></ol></nav>
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./06.Bayesian_Overview.html">Bayesian-Hierarchical Analysis (2025)</a></li><li class="breadcrumb-item"><a href="./09.Bayesian_Results(under revision).html"><span class="chapter-number">9</span>&nbsp; <span class="chapter-title">Bayesian Results</span></a></li></ol></nav>
 <div class="quarto-title">
-<div class="quarto-title-block"><div><h1 class="title"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Methods</span></h1><button type="button" class="btn code-tools-button" id="quarto-code-tools-source"><i class="bi"></i> Code</button></div></div>
+<div class="quarto-title-block"><div><h1 class="title"><span class="chapter-number">9</span>&nbsp; <span class="chapter-title">Bayesian Results</span></h1><button type="button" class="btn code-tools-button" id="quarto-code-tools-source"><i class="bi"></i> Code</button></div></div>
 </div>
 
 
@@ -302,74 +263,22 @@ window.Quarto = {
 </header>
 
 
-<p>This study evaluates whether multi-field machine-learning models can approximate field-specific nitrogen decisions that would otherwise require directly implementing an On-Farm Precision Experiment (OFPE). To do so, we construct yield–nitrogen response functions using a combination of Random Forest (RF), Extreme Gradient Boosting (XGBoost), and a leave-one-location-out (LOLO) cross-validation framework. These multi-field predictions are then compared to field-specific benchmark responses derived from a Generalized Additive Model (GAM) estimated using only the data from each individual OFPE field-year. The resulting comparison quantifies how closely pooled models replicate the nitrogen response, the economically optimal nitrogen rate (EONR), and the associated profit outcomes that would be obtained through direct experimentation.</p>
-<p>Random Forest is employed as a flexible, nonparametric learning algorithm capable of capturing complex relationships between nitrogen, soils, and weather conditions across heterogeneous OFPE fields. The method builds an ensemble of regression trees using bootstrap samples and randomized feature selection, ensuring that each tree explores different partitions of the predictor space (<span class="citation" data-cites="breiman2001random">Breiman (<a href="#ref-breiman2001random" role="doc-biblioref">2001</a>)</span>). For a given observation <span class="math inline">\(x_{ij}\)</span> representing nitrogen rate and associated covariates, the Random Forest prediction takes the form<br>
-<span class="math display">\[
-\hat{f}^{RF}(x_{ij}) = \frac{1}{B} \sum_{b=1}^B T_b(x_{ij}),
-\]</span><br>
-where <span class="math inline">\(T_b(\cdot)\)</span> denotes the prediction from tree <span class="math inline">\(b\)</span>. This averaging process reduces variance and allows the model to represent highly nonlinear and interaction-driven agronomic responses without specifying a parametric structure.</p>
-<p>Extreme Gradient Boosting (XGBoost) provides a complementary modeling strategy by constructing a sequence of regression trees, each of which is optimized to correct the errors of the preceding ensemble. Formally, the boosted prediction is expressed as<br>
-<span class="math display">\[
-\hat{f}^{XGB}(x_{ij}) = \sum_{k=1}^{K} \lambda_k T_k(x_{ij}),
-\]</span><br>
-where <span class="math inline">\(T_k(\cdot)\)</span> are regression trees and <span class="math inline">\(\lambda_k\)</span> are weights learned through gradient-based optimization (<span class="citation" data-cites="chen2016xgboost">Chen and Guestrin (<a href="#ref-chen2016xgboost" role="doc-biblioref">2016</a>)</span>). Regularization penalizes tree complexity and prevents overfitting, making XGBoost particularly effective for representing multivariate, nonlinear nitrogen response patterns in high-dimensional OFPE settings.</p>
-<p>To ensure that model assessment reflects genuine out-of-field predictive performance, both RF and XGBoost are trained under a leave-one-location-out (LOLO) cross-validation design. Each “location” corresponds to a complete field-year (i.e., one OFPE implementation). In each iteration, all observations from a given field-year are removed from the training set, and the model is fitted using the remaining dataset. Predictions are then generated exclusively for the held-out field. For a field-year <span class="math inline">\(i\)</span>, this procedure produces yield predictions of the form<br>
-<span class="math display">\[
-\hat{Y}_{ij}^{(-i)} = \hat{f}_{-i}(N_{ij}, X_{ij}),
-\]</span><br>
-where <span class="math inline">\(\hat{f}_{-i}\)</span> denotes the model trained on all other fields. This design prevents information leakage across subplot clusters within a field and provides a stringent test of how well multi-field relational patterns generalize to new farms under real-world agronomic heterogeneity.</p>
-<p>Model evaluation requires a benchmark representation of the realized yield–nitrogen relationship in each field. This benchmark is derived from a Generalized Additive Model (GAM) estimated using only the subplot-level data from the field-year under consideration. The GAM specification introduces smooth terms for nitrogen and key environmental covariates, enabling flexible representation of the underlying response surface without assuming linearity or functional restrictions. For field-year <span class="math inline">\(i\)</span>, the benchmark response function is given by<br>
-<span class="math display">\[
-\hat{f}^{GAM}_{i}(N, X) =
-\beta_0
-+ s_1(N) + s_2(\text{SED}) + s_3(\text{Slope})
-+ s_4(\text{Elevation}) + s_5(\text{Clay})
-+ s_6(\text{Sand}) + s_7(\text{Silt}) + \varepsilon,
-\]</span><br>
-where <span class="math inline">\(s_1, \dots, s_7\)</span> denote smooth functions estimated from the field’s own observations (<span class="citation" data-cites="wood2017generalized">Wood (<a href="#ref-wood2017generalized" role="doc-biblioref">2017</a>)</span>; <span class="citation" data-cites="gardner2021economic">Gardner, Mieno, and Bullock (<a href="#ref-gardner2021economic" role="doc-biblioref">2021</a>)</span>; <span class="citation" data-cites="hegedus2023assessing">Hegedus, Maxwell, and Mieno (<a href="#ref-hegedus2023assessing" role="doc-biblioref">2023</a>)</span>). This single-field GAM serves as the ex post yield–nitrogen curve realized under the actual soil, weather, and management conditions of that field-year.</p>
-<p>Using the GAM-estimated yield curve as the realized crop production function, economic outcomes are calculated by combining predicted yield with observed price and nitrogen cost information. The profit associated with nitrogen rate <span class="math inline">\(N\)</span> in field <span class="math inline">\(i\)</span> is<br>
-<span class="math display">\[
-\pi_i(N) = \bar{p}\,\hat{f}^{GAM}_i(N) - \bar{w}\,N,
-\]</span><br>
-where <span class="math inline">\(\bar{p}\)</span> is the corn price and <span class="math inline">\(\bar{w}\)</span> is the per-unit nitrogen cost. The economically optimal nitrogen rate derived from direct OFPE data is then<br>
-<span class="math display">\[
-EONR_d = \arg\max_N \pi_i(N),
-\]</span><br>
-providing a field-specific benchmark that reflects the true profit-maximizing decision for that year.</p>
-<p>Multi-field machine-learning models generate analogous profit functions using predictions from LOLO-trained models. For method <span class="math inline">\(ML \in \{RF, XGB\}\)</span>, the predicted profit for field <span class="math inline">\(i\)</span> is<br>
-<span class="math display">\[
-\pi^{ML}_i(N) = \bar{p}\,\hat{f}^{ML}_{-i}(N) - \bar{w}\,N,
-\]</span><br>
-and the corresponding optimal nitrogen rate is<br>
-<span class="math display">\[
-EONR_o = \arg\max_N \pi^{ML}_i(N).
-\]</span><br>
-Comparing <span class="math inline">\(EONR_o\)</span> to <span class="math inline">\(EONR_d\)</span> reveals the accuracy with which multi-field learning can substitute for direct experimentation. Differences in predicted and benchmark nitrogen rates are evaluated alongside differences in profit outcomes. The economic discrepancy,<br>
-<span class="math display">\[
-\Delta \pi_i = \pi_i(EONR_o) - \pi_i(EONR_d),
-\]</span><br>
-summarizes whether relying on pooled information leads to revenue gains or losses relative to the field-specific optimum. These comparisons allow us to determine both the predictive validity and the economic relevance of transferring information across OFPE fields, providing a direct empirical test of whether multi-field data can approach the decision quality generated by site-specific experiments.</p>
+<section id="to-be-updated-with" class="level2 unnumbered">
+<h2 class="unnumbered anchored" data-anchor-id="to-be-updated-with">To be updated with</h2>
+<section id="visual-diagram-of-producerfarmers-decision-supporting-system-with-bayesian-approach" class="level3 unnumbered">
+<h3 class="unnumbered anchored" data-anchor-id="visual-diagram-of-producerfarmers-decision-supporting-system-with-bayesian-approach">1. Visual diagram of producer(farmer)’s decision supporting system (with bayesian approach)</h3>
+</section>
+<section id="statitical-inference-from-the-data-anlaysis-results" class="level3 unnumbered">
+<h3 class="unnumbered anchored" data-anchor-id="statitical-inference-from-the-data-anlaysis-results">2. Statitical Inference from the data anlaysis Results</h3>
+</section>
+<section id="dyanmic-optimizing-behavior-map-of-producerfarmer" class="level3 unnumbered">
+<h3 class="unnumbered anchored" data-anchor-id="dyanmic-optimizing-behavior-map-of-producerfarmer">3. Dyanmic Optimizing behavior map of producer(farmer)</h3>
 
 
 <!-- -->
 
-<div id="refs" class="references csl-bib-body hanging-indent" data-entry-spacing="0" role="list">
-<div id="ref-breiman2001random" class="csl-entry" role="listitem">
-Breiman, Leo. 2001. <span>“Random Forests.”</span> <em>Machine Learning</em> 45 (1): 5–32.
-</div>
-<div id="ref-chen2016xgboost" class="csl-entry" role="listitem">
-Chen, Tianqi, and Carlos Guestrin. 2016. <span>“Xgboost: A Scalable Tree Boosting System.”</span> In <em>Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining</em>, 785–94.
-</div>
-<div id="ref-gardner2021economic" class="csl-entry" role="listitem">
-Gardner, Grant, Taro Mieno, and David S Bullock. 2021. <span>“An Economic Evaluation of Site-Specific Input Application r x Maps: Evaluation Framework and Case Study.”</span> <em>Precision Agriculture</em> 22: 1304–16.
-</div>
-<div id="ref-hegedus2023assessing" class="csl-entry" role="listitem">
-Hegedus, Paul B, Bruce D Maxwell, and Taro Mieno. 2023. <span>“Assessing Performance of Empirical Models for Forecasting Crop Responses to Variable Fertilizer Rates Using on-Farm Precision Experimentation.”</span> <em>Precision Agriculture</em> 24 (2): 677–704.
-</div>
-<div id="ref-wood2017generalized" class="csl-entry" role="listitem">
-Wood, Simon N. 2017. <em>Generalized Additive Models: An Introduction with r</em>. Chapman; Hall/CRC.
-</div>
-</div>
+</section>
+</section>
 
 </main> <!-- /main -->
 <script id="quarto-html-after-body" type="application/javascript">
@@ -845,78 +754,31 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 </script>
 <nav class="page-navigation">
   <div class="nav-page nav-page-previous">
-      <a href="./03.Data_and_Experiment.html" class="pagination-link" aria-label="Data and Design">
-        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Data and Design</span></span>
+      <a href="./08.Bayesian_Method.html" class="pagination-link" aria-label="Bayesian Method">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">8</span>&nbsp; <span class="chapter-title">Bayesian Method</span></span>
       </a>          
   </div>
   <div class="nav-page nav-page-next">
-      <a href="./05.Results(Limitation).html" class="pagination-link" aria-label="Results(limitation)">
-        <span class="nav-page-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Results(limitation)</span></span> <i class="bi bi-arrow-right-short"></i>
-      </a>
   </div>
 </nav><div class="modal fade" id="quarto-embedded-source-code-modal" tabindex="-1" aria-labelledby="quarto-embedded-source-code-modal-label" aria-hidden="true"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="quarto-embedded-source-code-modal-label">Source Code</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="">
 <div class="sourceCode" id="cb1" data-shortcodes="false"><pre class="sourceCode markdown code-with-copy"><code class="sourceCode markdown"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="an">title:</span><span class="co"> "Methods"</span></span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="an">bibliography:</span><span class="co"> value_refs.bib</span></span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="an">execute:</span></span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">  echo: false</span></span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co">  warning: false</span></span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co">  message: false</span></span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>This study evaluates whether multi-field machine-learning models can approximate field-specific nitrogen decisions that would otherwise require directly implementing an On-Farm Precision Experiment (OFPE). To do so, we construct yield–nitrogen response functions using a combination of Random Forest (RF), Extreme Gradient Boosting (XGBoost), and a leave-one-location-out (LOLO) cross-validation framework. These multi-field predictions are then compared to field-specific benchmark responses derived from a Generalized Additive Model (GAM) estimated using only the data from each individual OFPE field-year. The resulting comparison quantifies how closely pooled models replicate the nitrogen response, the economically optimal nitrogen rate (EONR), and the associated profit outcomes that would be obtained through direct experimentation.</span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>Random Forest is employed as a flexible, nonparametric learning algorithm capable of capturing complex relationships between nitrogen, soils, and weather conditions across heterogeneous OFPE fields. The method builds an ensemble of regression trees using bootstrap samples and randomized feature selection, ensuring that each tree explores different partitions of the predictor space (@breiman2001random). For a given observation $x_{ij}$ representing nitrogen rate and associated covariates, the Random Forest prediction takes the form  </span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>$$</span>
-<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>\hat{f}^{RF}(x_{ij}) = \frac{1}{B} \sum_{b=1}^B T_b(x_{ij}),</span>
-<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>$$  </span>
-<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>where $T_b(\cdot)$ denotes the prediction from tree $b$. This averaging process reduces variance and allows the model to represent highly nonlinear and interaction-driven agronomic responses without specifying a parametric structure.</span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>Extreme Gradient Boosting (XGBoost) provides a complementary modeling strategy by constructing a sequence of regression trees, each of which is optimized to correct the errors of the preceding ensemble. Formally, the boosted prediction is expressed as  </span>
-<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>$$</span>
-<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>\hat{f}^{XGB}(x_{ij}) = \sum_{k=1}^{K} \lambda_k T_k(x_{ij}),</span>
-<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>$$  </span>
-<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>where $T_k(\cdot)$ are regression trees and $\lambda_k$ are weights learned through gradient-based optimization (@chen2016xgboost). Regularization penalizes tree complexity and prevents overfitting, making XGBoost particularly effective for representing multivariate, nonlinear nitrogen response patterns in high-dimensional OFPE settings.</span>
-<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>To ensure that model assessment reflects genuine out-of-field predictive performance, both RF and XGBoost are trained under a leave-one-location-out (LOLO) cross-validation design. Each “location” corresponds to a complete field-year (i.e., one OFPE implementation). In each iteration, all observations from a given field-year are removed from the training set, and the model is fitted using the remaining dataset. Predictions are then generated exclusively for the held-out field. For a field-year $i$, this procedure produces yield predictions of the form  </span>
-<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>$$</span>
-<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>\hat{Y}_{ij}^{(-i)} = \hat{f}_{-i}(N_{ij}, X_{ij}),</span>
-<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>$$  </span>
-<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>where $\hat{f}_{-i}$ denotes the model trained on all other fields. This design prevents information leakage across subplot clusters within a field and provides a stringent test of how well multi-field relational patterns generalize to new farms under real-world agronomic heterogeneity.</span>
-<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>Model evaluation requires a benchmark representation of the realized yield–nitrogen relationship in each field. This benchmark is derived from a Generalized Additive Model (GAM) estimated using only the subplot-level data from the field-year under consideration. The GAM specification introduces smooth terms for nitrogen and key environmental covariates, enabling flexible representation of the underlying response surface without assuming linearity or functional restrictions. For field-year $i$, the benchmark response function is given by  </span>
-<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>$$</span>
-<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>\hat{f}^{GAM}_{i}(N, X) =</span>
-<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>\beta_0 </span>
-<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a><span class="ss">+ </span>s_1(N) + s_2(\text{SED}) + s_3(\text{Slope})</span>
-<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a><span class="ss">+ </span>s_4(\text{Elevation}) + s_5(\text{Clay})</span>
-<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a><span class="ss">+ </span>s_6(\text{Sand}) + s_7(\text{Silt}) + \varepsilon,</span>
-<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>$$  </span>
-<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>where $s_1, \dots, s_7$ denote smooth functions estimated from the field’s own observations (@wood2017generalized; @gardner2021economic; @hegedus2023assessing). This single-field GAM serves as the ex post yield–nitrogen curve realized under the actual soil, weather, and management conditions of that field-year.</span>
-<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>Using the GAM-estimated yield curve as the realized crop production function, economic outcomes are calculated by combining predicted yield with observed price and nitrogen cost information. The profit associated with nitrogen rate $N$ in field $i$ is  </span>
-<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>$$</span>
-<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>\pi_i(N) = \bar{p}\,\hat{f}^{GAM}_i(N) - \bar{w}\,N,</span>
-<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>$$  </span>
-<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a>where $\bar{p}$ is the corn price and $\bar{w}$ is the per-unit nitrogen cost. The economically optimal nitrogen rate derived from direct OFPE data is then  </span>
-<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a>$$</span>
-<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a>EONR_d = \arg\max_N \pi_i(N),</span>
-<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a>$$  </span>
-<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a>providing a field-specific benchmark that reflects the true profit-maximizing decision for that year.</span>
-<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a>Multi-field machine-learning models generate analogous profit functions using predictions from LOLO-trained models. For method $ML \in <span class="sc">\{</span>RF, XGB<span class="sc">\}</span>$, the predicted profit for field $i$ is  </span>
-<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a>$$</span>
-<span id="cb1-52"><a href="#cb1-52" aria-hidden="true" tabindex="-1"></a>\pi^{ML}_i(N) = \bar{p}\,\hat{f}^{ML}_{-i}(N) - \bar{w}\,N,</span>
-<span id="cb1-53"><a href="#cb1-53" aria-hidden="true" tabindex="-1"></a>$$  </span>
-<span id="cb1-54"><a href="#cb1-54" aria-hidden="true" tabindex="-1"></a>and the corresponding optimal nitrogen rate is  </span>
-<span id="cb1-55"><a href="#cb1-55" aria-hidden="true" tabindex="-1"></a>$$</span>
-<span id="cb1-56"><a href="#cb1-56" aria-hidden="true" tabindex="-1"></a>EONR_o = \arg\max_N \pi^{ML}_i(N).</span>
-<span id="cb1-57"><a href="#cb1-57" aria-hidden="true" tabindex="-1"></a>$$  </span>
-<span id="cb1-58"><a href="#cb1-58" aria-hidden="true" tabindex="-1"></a>Comparing $EONR_o$ to $EONR_d$ reveals the accuracy with which multi-field learning can substitute for direct experimentation. Differences in predicted and benchmark nitrogen rates are evaluated alongside differences in profit outcomes. The economic discrepancy,  </span>
-<span id="cb1-59"><a href="#cb1-59" aria-hidden="true" tabindex="-1"></a>$$</span>
-<span id="cb1-60"><a href="#cb1-60" aria-hidden="true" tabindex="-1"></a>\Delta \pi_i = \pi_i(EONR_o) - \pi_i(EONR_d),</span>
-<span id="cb1-61"><a href="#cb1-61" aria-hidden="true" tabindex="-1"></a>$$  </span>
-<span id="cb1-62"><a href="#cb1-62" aria-hidden="true" tabindex="-1"></a>summarizes whether relying on pooled information leads to revenue gains or losses relative to the field-specific optimum. These comparisons allow us to determine both the predictive validity and the economic relevance of transferring information across OFPE fields, providing a direct empirical test of whether multi-field data can approach the decision quality generated by site-specific experiments.</span></code><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></pre></div>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="an">title:</span><span class="co"> "Bayesian Results"</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="an">format:</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">  html:</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">    toc: true</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co">    toc-depth: 3</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co">    code-fold: false</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="an">execute:</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="co">  echo: false</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="co">  warning: false</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="co">  message: false</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="fu">## To be updated with  {-}</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="fu">### 1. Visual diagram of producer(farmer)'s decision supporting system (with bayesian approach)  {-}</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="fu">### 2. Statitical Inference from the data anlaysis Results  {-}</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a><span class="fu">### 3. Dyanmic Optimizing behavior map of producer(farmer)  {-}</span></span></code><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></pre></div>
 </div></div></div></div></div>
 </div> <!-- /content -->
 
